@@ -39,7 +39,7 @@ default_config = {
     "EOS": 1024,
 }
 
-@torch.jit.script
+# @torch.jit.script
 # Efficient implementation equivalent to the following:
 def scaled_dot_product_attention(query:torch.Tensor, key:torch.Tensor, value:torch.Tensor, attn_mask:Optional[torch.Tensor]=None, scale:Optional[torch.Tensor]=None) -> torch.Tensor:
     B, H, L, S =query.size(0), query.size(1), query.size(-2), key.size(-2)
