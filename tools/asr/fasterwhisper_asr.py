@@ -40,6 +40,11 @@ def execute_asr(input_folder, output_folder, model_size, language, precision):
         model_path = f'tools/asr/models/faster-whisper-{model_size}'
     else:
         model_path = model_size
+
+    if model_size == "faster-whisper-large-v3-turbo-ct2":
+        model_path = f'tools/asr/models/faster-whisper-large-v3-turbo-ct2'
+
+    
     if language == 'auto':
         language = None #不设置语种由模型自动输出概率最高的语种
     print("loading faster whisper model:",model_size,model_path)
