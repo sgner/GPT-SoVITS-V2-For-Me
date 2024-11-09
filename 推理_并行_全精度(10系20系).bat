@@ -10,5 +10,5 @@ SET PYTHON_BIN_PATH=%PYTHON_EXECUTABLE%
 SET PYTHON_LIB_PATH=%PYTHON_PATH%\Lib\site-packages
 SET FFMPEG_PATH=%cd%\runtime\ffmpeg\bin
 SET PATH=%PYTHON_PATH%;%PYTHON_PATH%\Scripts;%FFMPEG_PATH%;%PATH%
-runtime\python.exe GPT_SoVITS/inference_webui_fast_full.py zh_CN
+"%PYTHON_EXECUTABLE%" GPT_SoVITS/inference_webui_fast_full.py zh_CN
 pause
