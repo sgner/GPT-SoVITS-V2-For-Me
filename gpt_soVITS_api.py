@@ -499,6 +499,9 @@ ps_slice = []
 
 
 def open_slice(inp, opt_root, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha, n_parts):
+    print("开始！！！")
+    print(inp)
+    print(opt_root)
     global ps_slice
     inp = my_utils.clean_path(inp)
     opt_root = my_utils.clean_path(opt_root)
@@ -524,15 +527,18 @@ def open_slice(inp, opt_root, threshold, min_length, min_interval, hop_size, max
             print(cmd)
             p = Popen(cmd, shell=True)
             ps_slice.append(p)
+        logger.debug("切割执行开始")
         yield "切割执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}, {
             "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
         for p in ps_slice:
             p.wait()
         ps_slice = []
+        logger.debug("切割执行结束")
         yield "切割结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
             "__type__": "update", "value": opt_root}, {"__type__": "update", "value": opt_root}, {"__type__": "update",
                                                                                                   "value": opt_root}
     else:
+        logger.debug("已有正在进行的切割任务，需先终止才能开启下一次任务")
         yield "已有正在进行的切割任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
             "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
             "__type__": "update"}
@@ -930,8 +936,8 @@ class sliceRequest(BaseModel):
 @app.post("/gpt_sovits/open_slice")
 async def open_slice_api(request: sliceRequest):
     try:
-        print(request)
-        open_slice(
+        print(request.inp)
+        result = open_slice(
             request.inp,
             request.opt_root,
             request.threshold,
@@ -943,8 +949,9 @@ async def open_slice_api(request: sliceRequest):
             request.alpha,
             request.n_parts
         )
+        print(list(result))
         return {"status": "success", "message": "成功进行音频切割"}
-    except:
+    except Exception as e:
         logger.error(f"进行音频切割时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
@@ -955,10 +962,11 @@ class denoiseRequest(BaseModel):
 @app.post("/gpt_sovits/open_denoise")
 async def open_denoise_api(reqeust: denoiseRequest):
     try:
-        open_denoise(
+        result = open_denoise(
             reqeust.denoise_inp_dir,
             reqeust.denoise_opt_dir
         )
+        print(list(result))
         return {"status": "success", "message": "成功进行音频降噪"}
     except:
         logger.error(f"进行音频降噪时异常: {str(e)}")
@@ -975,7 +983,7 @@ class asrRequest(BaseModel):
 @app.post("/gpt_sovits/open_asr")
 async def open_asr_api(request: asrRequest):
    try:
-     open_asr(
+     result = open_asr(
          request.asr_inp_dir,
          request.asr_opt_dir,
          request.asr_model,
@@ -983,6 +991,7 @@ async def open_asr_api(request: asrRequest):
          request.asr_lang,
          request.asr_precision
      )
+     print(list(result))
      return {"status": "success", "message": "成功进行ASR"}
    except:
      logger.error(f"进行ASR时出错: {str(e)}")
@@ -1002,7 +1011,7 @@ class abcRequest(BaseModel):
 @app.post("/gpt_sovits/open1abc")
 async def open_1abc_api(request: abcRequest):
     try:
-       open1abc(
+      result = open1abc(
            request.inp_text,
            request.inp_wav_dir,
            request.exp_name,
@@ -1013,6 +1022,8 @@ async def open_1abc_api(request: abcRequest):
            request.ssl_pretrained_dir,
            request.pretrained_s2G_path
        )
+      print(list(result))
+      return {"status": "success", "message": "成功进行一键三连"}
     except:
         logger.error(f"进行一键三连时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1032,7 +1043,7 @@ class sovitsTrainRequest(BaseModel):
 @app.post("/gpt_sovits/sovits_train")
 async def sovits_train_api(request: sovitsTrainRequest):
     try:
-         open1Ba(
+        result = open1Ba(
              request.batch_size,
              request.total_epoch,
              request.exp_name,
@@ -1044,6 +1055,8 @@ async def sovits_train_api(request: sovitsTrainRequest):
              request.pretrained_s2G,
              request.pretrained_s2D
          )
+        print(list(result))
+        return {"status": "success", "message": "成功进行sovits训练"}
     except:
         logger.error(f"进行sovits训练时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1062,7 +1075,7 @@ class gptTrainRequest(BaseModel):
 @app.post("/gpt_sovits/gpt_train")
 async def gpt_train_api(request: gptTrainRequest):
      try:
-        open1Bb(
+        result = open1Bb(
             request.batch_size,
             request.total_epoch,
             request.exp_name,
@@ -1073,6 +1086,8 @@ async def gpt_train_api(request: gptTrainRequest):
             request.gpu_numbers,
             request.pretrained_s1
         )
+        print(list(result))
+        return {"status": "success", "message": "成功进行gpt训练"}
      except:
         logger.error(f"进行gpt训练时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
