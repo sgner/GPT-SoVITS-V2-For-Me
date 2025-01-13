@@ -113,3 +113,49 @@ def check_details(path_list=None,is_train=False,is_dataset_processing=False):
         )
         if len(df) >= 1:...
         else:gr.Warning(i18n('缺少语义数据集'))
+
+
+def replace_last_two_folders(path, replacement):
+    # 找到倒数第二个反斜杠的位置
+    last_slash = path.rfind(os.sep)  # 找到最后一个反斜杠的位置
+    if last_slash == -1:
+        return path  # 如果没有反斜杠，直接返回原路径
+
+    second_last_slash = path.rfind(os.sep, 0, last_slash)  # 找到倒数第二个反斜杠的位置
+    if second_last_slash == -1:
+        return path  # 如果没有足够的反斜杠，也返回原路径
+
+    # 替换倒数第二个反斜杠后面的内容
+    new_path = path[:second_last_slash + 1] + replacement
+    return new_path
+
+def replace_last_part_of_path(path, new_part):
+    # 查找最后一个反斜杠的位置
+    last_backslash_index = path.rfind(os.sep)
+    if last_backslash_index != -1:
+        # 使用切片替换反斜杠后面的部分
+        new_path = path[:last_backslash_index + 1] + new_part
+        return new_path
+    else:
+        # 如果没有反斜杠，返回原路径
+        return path
+
+def replace_workspace_folder(path, replacement):
+    # 找到 "workspace" 的位置
+    workspace_index = path.find("workspace")
+    if workspace_index == -1:
+        return path  # 如果找不到 "workspace"，返回原路径
+
+    # 找到 "workspace" 后面的第一个反斜杠的位置
+    after_workspace_index = path.find(os.sep, workspace_index) + 1
+    if after_workspace_index == 0:
+        return path  # 如果没有找到，返回原路径
+
+    # 找到 "workspace" 后面的文件夹结束的位置
+    next_slash_index = path.find(os.sep, after_workspace_index)
+    if next_slash_index == -1:
+        next_slash_index = len(path)  # 如果没有更多的反斜杠，取到字符串末尾
+
+    # 构造新的路径
+    new_path = path[:after_workspace_index] + replacement + path[next_slash_index:]
+    return new_path
