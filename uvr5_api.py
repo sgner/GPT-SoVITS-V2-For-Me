@@ -16,6 +16,9 @@ from mdxnet import MDXNetDereverb
 from vr import AudioPre, AudioPreDeEcho
 from bsroformer import BsRoformer_Loader
 import sys
+import json
+import pika
+import mq.config as mq_config
 
 # Initialize i18n and logger
 i18n = I18nAuto()
@@ -134,9 +137,9 @@ def uvr_remote(model_name, inp_root, format0, agg, paths):
     try:
         download_path = aliyun_oss.download_list_file(inp_root)
         inp_root = clean_path(download_path)
-        save_root_vocal = clean_path(replace_last_part_of_path(inp_root,"vocal"))
+        save_root_vocal = clean_path(replace_last_part_of_path(inp_root, "vocal"))
         print("save_root_vocal: ", save_root_vocal)
-        save_root_ins = clean_path(replace_last_part_of_path(inp_root,"instrument"))
+        save_root_ins = clean_path(replace_last_part_of_path(inp_root, "instrument"))
         print("save_root_ins: ", save_root_ins)
         is_hp3 = "HP3" in model_name
         # Select the model based on the name
@@ -221,7 +224,25 @@ def uvr_remote(model_name, inp_root, format0, agg, paths):
             traceback.print_exc()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-    return find_second_backslash(save_root_vocal)
+    aliyun_oss.upload_list_file(save_root_vocal)
+    last_index = save_root_vocal.rfind("\\")
+    delete_path = save_root_vocal[:last_index]
+    clear_file.delete_all_files_in_folder(delete_path)
+
+def startUvr5Emit(requestData):
+    # 建立连接和频道
+    # 这里使用默认的配置
+    connection = mq_config.create_connection()
+    channel = connection.channel()
+
+    # 声明交换机
+    channel.exchange_declare(exchange='uvr5', exchange_type='direct',durable=True)
+    body = json.dumps(requestData)
+    # 发送消息，转换 requestData 为 JSON 格式的字符串
+    mq_config.publish_with_retry(channel=channel, exchange='uvr5', routing_key='start', body=body)
+    print("请求uvr5已发送:", json.dumps(requestData))
+    # 关闭连接
+    connection.close()
 
 
 # Define the request models
@@ -234,25 +255,28 @@ class AudioProcessingRequest(BaseModel):
     agg: Optional[int] = 10
     paths: Optional[List[str]] = []
 
+
 class AudioProcessingRequestRemote(BaseModel):
     model_name: str
     input_root: str
     format0: str
+    session_id: str
     agg: Optional[int] = 10
     paths: Optional[List[str]] = []
+
+
 @app.post("/process_audio")
 async def process_audio(request: AudioProcessingRequestRemote):
     try:
         print(request)
         # Process audio based on the request
-        result = uvr_remote(
-            request.model_name,
-            request.input_root,
-            request.format0,
-            request.agg,
-            request.paths
-        )
-        return {"status": "success", "message": result}
+        try:
+            startUvr5Emit(
+                request.dict()
+            )
+        except Exception as e:
+            return {"status": "error", "message": f"Error: {str(e)}"}
+        return {"status": "success", "message": "Audio processing started."}
     except Exception as e:
         logger.error(f"Error processing audio: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -286,6 +310,7 @@ def replace_last_part_of_path(path, new_part):
         # 如果没有反斜杠，返回原路径
         return path
 
+
 def find_second_backslash(path):
     # 找到第一个反斜杠的位置
     first_index = path.find('\\')
@@ -293,8 +318,9 @@ def find_second_backslash(path):
         return -1  # 如果没有反斜杠，返回 -1
     # 从第一个反斜杠之后开始找第二个反斜杠的位置
     second_index = path.find('\\', first_index + 1)
-    path = path[second_index+1:]
+    path = path[second_index + 1:]
     return path
+
 
 if __name__ == "__main__":
     import uvicorn

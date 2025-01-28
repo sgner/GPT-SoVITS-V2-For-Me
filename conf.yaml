@@ -1,1 +1,3 @@
 tmp_path: "E:\\test-oss\\"
+root_path: "E:\\gptov\\GPT-SoVITS\\GPT-SoVITS-v2"
+log_path: "E:\\gptov\\GPT-SoVITS\\GPT-SoVITS-v2\\logs"

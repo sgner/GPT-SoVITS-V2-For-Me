@@ -1,3 +1,5 @@
+import time
+
 import os, sys
 import aliyun_oss
 import clear_file
@@ -9,6 +11,7 @@ os.environ["version"] = version
 now_dir = os.getcwd()
 sys.path.insert(0, now_dir)
 import warnings
+import mq.config as mq_config
 
 warnings.filterwarnings("ignore")
 import json, yaml, torch, pdb, re, shutil
@@ -73,15 +76,6 @@ from scipy.io import wavfile
 from tools.my_utils import load_audio, check_for_existance, check_details
 from multiprocessing import cpu_count
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-
-# os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1' # 当遇到mps不支持的步骤时使用cpu
-# try:
-#     import gradio.analytics as analytics
-#
-#     analytics.version_check = lambda: None
-# except:
-#     ...
-# import gradio as gr
 
 n_cpu = cpu_count()
 
@@ -340,7 +334,7 @@ def open_asr(asr_inp_dir, asr_opt_dir, asr_model, asr_model_size, asr_lang, asr_
         # return None
 
 
-def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precision):
+def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precision, one_click_flag=False):
     global p_asr
     if (p_asr == None):
         with open('conf.yaml', 'r') as f:
@@ -353,13 +347,9 @@ def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precis
             asr_opt_dir = my_utils.replace_workspace_folder(asr_inp_dir, "asr_workspace")
             asr_opt_dir = my_utils.replace_last_part_of_path(asr_opt_dir, "asr")
         else:
-            try:
-                asr_inp_dir = aliyun_oss.download_list_file(mark_inp)
-                asr_opt_dir = my_utils.replace_last_part_of_path(asr_inp_dir, "asr")
-                print("inp:  " + asr_inp_dir)
-            except Exception as e:
-                print(e)
-                return "error"
+            asr_inp_dir = aliyun_oss.download_list_file(mark_inp)
+            asr_opt_dir = my_utils.replace_last_part_of_path(asr_inp_dir, "asr")
+            print("inp:  " + asr_inp_dir)
         asr_inp_dir = my_utils.clean_path(asr_inp_dir)
         asr_opt_dir = my_utils.clean_path(asr_opt_dir)
         check_for_existance([asr_inp_dir])
@@ -383,6 +373,13 @@ def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precis
                                                                                             "visible": False}, {
             "__type__": "update", "value": output_file_path}, {"__type__": "update", "value": output_file_path}, {
             "__type__": "update", "value": asr_inp_dir}
+
+        aliyun_oss.upload_list_file(asr_opt_dir)
+        if not one_click_flag:
+            clear_file.delete_all_files_in_folder(asr_inp_dir)
+            last_index = asr_opt_dir.rfind(os.sep)
+            asr_opt_dir = asr_opt_dir[:last_index]
+            clear_file.delete_all_files_in_folder(asr_opt_dir)
     else:
         yield "已有正在进行的ASR任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
             "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
@@ -423,10 +420,10 @@ def open_denoise(denoise_inp_dir, denoise_opt_dir):
         # return None
 
 
-def open_denoise_remote(denoise_inp_dir):
+def open_denoise_remote(denoise_inp_dir, one_click_flag=False):
     global p_denoise
     if (p_denoise == None):
-        with open("conf.yaml",'r') as f:
+        with open("conf.yaml", 'r') as f:
             conf = yaml.safe_load(f)
         denoise_inp_dir_mark = denoise_inp_dir
         denoise_inp_dir = conf['tmp_path'] + denoise_inp_dir
@@ -436,12 +433,8 @@ def open_denoise_remote(denoise_inp_dir):
             denoise_opt_dir = my_utils.replace_workspace_folder(denoise_inp_dir, "denoise_workspace")
             denoise_opt_dir = my_utils.replace_last_part_of_path(denoise_opt_dir, "denoise")
         else:
-            try:
-                denoise_inp_dir = aliyun_oss.download_list_file(denoise_inp_dir_mark)
-                denoise_opt_dir = my_utils.replace_last_part_of_path(denoise_inp_dir, "denoise")
-            except Exception as e:
-                print(e)
-                return "error"
+            denoise_inp_dir = aliyun_oss.download_list_file(denoise_inp_dir_mark)
+            denoise_opt_dir = my_utils.replace_last_part_of_path(denoise_inp_dir, "denoise")
         print("OUT!!!!" + denoise_inp_dir)
         check_for_existance([denoise_inp_dir])
         cmd = '"%s" tools/cmd-denoise.py -i "%s" -o "%s" -p %s' % (
@@ -458,6 +451,11 @@ def open_denoise_remote(denoise_inp_dir):
                                                                                                  "visible": False}, {
             "__type__": "update", "value": denoise_opt_dir}, {"__type__": "update", "value": denoise_opt_dir}
         clear_file.delete_all_files_in_folder(denoise_inp_dir)
+        if not one_click_flag:
+            aliyun_oss.upload_list_file(denoise_opt_dir)
+            last_index = denoise_opt_dir.rfind(os.sep)
+            denoise_opt_dir = denoise_opt_dir[:last_index]
+            clear_file.delete_all_files_in_folder(denoise_opt_dir)
     else:
         yield "已有正在进行的语音降噪任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
             "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}
@@ -475,13 +473,18 @@ p_train_SoVITS = None
 
 
 def open1Ba(batch_size, total_epoch, exp_name, text_low_lr_rate, if_save_latest, if_save_every_weights,
-            save_every_epoch, gpu_numbers1Ba, pretrained_s2G, pretrained_s2D):
+            save_every_epoch, gpu_numbers1Ba, pretrained_s2G, pretrained_s2D, user_id, inp_path=""):
     global p_train_SoVITS
     if (p_train_SoVITS == None):
         with open("GPT_SoVITS/configs/s2.json") as f:
             data = f.read()
             data = json.loads(data)
-        s2_dir = "%s/%s" % (exp_root, exp_name)
+        with open("conf.yaml", 'r') as conf_f:
+            conf = yaml.safe_load(conf_f)
+        local_flag = os.path.exists(conf['log_path'] + os.sep + user_id + os.sep + exp_name)
+        if not local_flag and inp_path is not None and inp_path != "":
+            aliyun_oss.download_directory_4_1Ba(inp_path, conf['log_path'] + os.sep + user_id + os.sep + exp_name)
+        s2_dir = "%s/%s" % (exp_root + os.sep + user_id, exp_name)
         os.makedirs("%s/logs_s2" % (s2_dir), exist_ok=True)
         if check_for_existance([s2_dir], is_train=True):
             check_details([s2_dir], is_train=True)
@@ -499,7 +502,12 @@ def open1Ba(batch_size, total_epoch, exp_name, text_low_lr_rate, if_save_latest,
         data["train"]["gpu_numbers"] = gpu_numbers1Ba
         data["model"]["version"] = version
         data["data"]["exp_dir"] = data["s2_ckpt_dir"] = s2_dir
-        data["save_weight_dir"] = SoVITS_weight_root[-int(version[-1]) + 2]
+        save_path = conf['root_path'] + os.sep + SoVITS_weight_root[
+            -int(version[-1]) + 2] + os.sep + user_id + os.sep + exp_name
+        print(save_path)
+        if (not os.path.exists(save_path)):
+            os.makedirs(save_path)
+        data["save_weight_dir"] = SoVITS_weight_root[-int(version[-1]) + 2] + os.sep + user_id + os.sep + exp_name
         data["name"] = exp_name
         data["version"] = version
         tmp_config_path = "%s/tmp_s2.json" % tmp
@@ -514,6 +522,15 @@ def open1Ba(batch_size, total_epoch, exp_name, text_low_lr_rate, if_save_latest,
         p_train_SoVITS.wait()
         p_train_SoVITS = None
         yield "SoVITS训练完成", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+        print("开始上传模型")
+        aliyun_oss.upload_model(save_path, user_id + "/" + "model" + "/" + "Sovits_weight/" + exp_name)
+        last_index = save_path.rfind(os.sep)
+        save_path = save_path[:last_index]
+        clear_file.delete_all_files_in_folder(save_path)
+        if os.path.exists(
+                conf['log_path'] + os.sep + user_id + os.sep + exp_name + os.sep + "logs_s1") and os.path.exists(
+            conf['log_path'] + os.sep + user_id + os.sep + exp_name + os.sep + "logs_s2"):
+            clear_file.delete_all_files_in_folder(conf['log_path'] + os.sep + user_id + os.sep + exp_name)
     else:
         yield "已有正在进行的SoVITS训练任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
             "__type__": "update", "visible": True}
@@ -531,14 +548,19 @@ p_train_GPT = None
 
 
 def open1Bb(batch_size, total_epoch, exp_name, if_dpo, if_save_latest, if_save_every_weights, save_every_epoch,
-            gpu_numbers, pretrained_s1):
+            gpu_numbers, pretrained_s1, user_id, inp_path):
     global p_train_GPT
     if (p_train_GPT == None):
         with open(
                 "GPT_SoVITS/configs/s1longer.yaml" if version == "v1" else "GPT_SoVITS/configs/s1longer-v2.yaml") as f:
             data = f.read()
             data = yaml.load(data, Loader=yaml.FullLoader)
-        s1_dir = "%s/%s" % (exp_root, exp_name)
+        with open("conf.yaml", 'r') as conf_f:
+            conf = yaml.safe_load(conf_f)
+        local_flag = os.path.exists(conf['log_path'] + os.sep + user_id + os.sep + exp_name)
+        if not local_flag and inp_path is not None and inp_path != "":
+            aliyun_oss.download_directory_4_1Ba(inp_path, conf['log_path'] + os.sep + user_id + os.sep + exp_name)
+        s1_dir = "%s/%s" % (exp_root + os.sep + user_id, exp_name)
         os.makedirs("%s/logs_s1" % (s1_dir), exist_ok=True)
         if check_for_existance([s1_dir], is_train=True):
             check_details([s1_dir], is_train=True)
@@ -552,7 +574,13 @@ def open1Bb(batch_size, total_epoch, exp_name, if_dpo, if_save_latest, if_save_e
         data["train"]["if_save_every_weights"] = if_save_every_weights
         data["train"]["if_save_latest"] = if_save_latest
         data["train"]["if_dpo"] = if_dpo
-        data["train"]["half_weights_save_dir"] = GPT_weight_root[-int(version[-1]) + 2]
+        save_path = conf['root_path'] + os.sep + GPT_weight_root[
+            -int(version[-1]) + 2] + os.sep + user_id + os.sep + exp_name
+        print(save_path)
+        if (not os.path.exists(save_path)):
+            os.makedirs(save_path)
+        data["train"]["half_weights_save_dir"] = GPT_weight_root[
+                                                     -int(version[-1]) + 2] + os.sep + user_id + os.sep + exp_name
         data["train"]["exp_name"] = exp_name
         data["train_semantic_path"] = "%s/6-name2semantic.tsv" % s1_dir
         data["train_phoneme_path"] = "%s/2-name2text.txt" % s1_dir
@@ -572,6 +600,16 @@ def open1Bb(batch_size, total_epoch, exp_name, if_dpo, if_save_latest, if_save_e
         p_train_GPT.wait()
         p_train_GPT = None
         yield "GPT训练完成", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+        print("开始上传模型。。。。。。。。。。")
+        aliyun_oss.upload_model(save_path, user_id + "/" + "model" + "/" + "gpt_weight/" + exp_name)
+        last_index = save_path.rfind(os.sep)
+        save_path = save_path[:last_index]
+        clear_file.delete_all_files_in_folder(save_path)
+        if os.path.exists(
+                conf['log_path'] + os.sep + user_id + os.sep + exp_name + os.sep + "logs_s1") and os.path.exists(
+            conf['log_path'] + os.sep + user_id + os.sep + exp_name + os.sep + "logs_s2"):
+            clear_file.delete_all_files_in_folder(conf['log_path'] + os.sep + user_id + os.sep + exp_name)
+
     else:
         yield "已有正在进行的GPT训练任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
             "__type__": "update", "visible": True}
@@ -589,8 +627,6 @@ ps_slice = []
 
 
 def open_slice(inp, opt_root, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha, n_parts):
-    print(inp)
-    print(opt_root)
     global ps_slice
     inp = my_utils.clean_path(inp)
     opt_root = my_utils.clean_path(opt_root)
@@ -633,7 +669,8 @@ def open_slice(inp, opt_root, threshold, min_length, min_interval, hop_size, max
             "__type__": "update"}
 
 
-def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha, n_parts):
+def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha, n_parts,
+                      one_click_flag=False):
     with open('conf.yaml', 'r') as file:
         conf = yaml.safe_load(file)
     mark_inp = inp
@@ -644,13 +681,9 @@ def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, m
         opt_root = my_utils.replace_workspace_folder(inp, "slice_workspace")
         opt_root = my_utils.replace_last_part_of_path(opt_root, "slice")
     else:
-        try:
-            inp = aliyun_oss.download_list_file(mark_inp)
-            opt_root = my_utils.replace_last_part_of_path(inp, "slice")
-            print("inp:  " + inp)
-        except Exception as e:
-            print(e)
-            return "error"
+        inp = aliyun_oss.download_list_file(mark_inp)
+        opt_root = my_utils.replace_last_part_of_path(inp, "slice")
+        print("inp:  " + inp)
     print("opt_root: ", opt_root)
     global ps_slice
     inp = my_utils.clean_path(inp)
@@ -684,9 +717,13 @@ def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, m
             p.wait()
         ps_slice = []
         logger.debug("切割执行结束")
-        print("!!!!!!!!!!!!!!" + inp)
         if os.path.exists(inp):
             clear_file.delete_all_files_in_folder(inp)
+            if not one_click_flag:
+                aliyun_oss.upload_list_file(opt_root)
+                last_index = opt_root.rfind(os.sep)
+                opt_root = opt_root[:last_index]
+                clear_file.delete_all_files_in_folder(opt_root)
         yield "切割结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
             "__type__": "update", "value": opt_root}, {"__type__": "update", "value": opt_root}, {"__type__": "update",
                                                                                                   "value": opt_root}
@@ -1032,7 +1069,7 @@ def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu
 
 
 def open1abc_remote(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu_numbers1c, bert_pretrained_dir,
-                    ssl_pretrained_dir, pretrained_s2G_path):
+                    ssl_pretrained_dir, pretrained_s2G_path, user_id, one_click_flag=False):
     global ps1abc
     with open('conf.yaml', 'r') as f:
         conf = yaml.safe_load(f)
@@ -1041,70 +1078,36 @@ def open1abc_remote(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1
     inp_text = conf['tmp_path'] + inp_text
     inp_wav_dir = conf['tmp_path'] + inp_wav_dir
     if os.path.exists(inp_text) and os.path.exists((inp_wav_dir)):
-         pass
+        pass
     else:
-         try:
+        try:
             inp_text = aliyun_oss.download_list_file(inp_text_mark)
             inp_wav_dir = aliyun_oss.download_list_file(inp_wav_dir_mark)
-         except Exception as e:
-             print(e)
+        except Exception as e:
+            print(e)
     inp_text = my_utils.clean_path(inp_text)
+    text_list = os.listdir(inp_text)
+    inp_text = inp_text + os.sep + text_list[0]
     inp_wav_dir = my_utils.clean_path(inp_wav_dir)
     if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
         check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
     if (ps1abc == []):
-        opt_dir = "%s/%s" % (exp_root, exp_name)
-        try:
-            #############################1a
-            path_text = "%s/2-name2text.txt" % opt_dir
-            if (os.path.exists(path_text) == False or (os.path.exists(path_text) == True and len(
-                    open(path_text, "r", encoding="utf8").read().strip("\n").split("\n")) < 2)):
-                config = {
-                    "inp_text": inp_text,
-                    "inp_wav_dir": inp_wav_dir,
-                    "exp_name": exp_name,
-                    "opt_dir": opt_dir,
-                    "bert_pretrained_dir": bert_pretrained_dir,
-                    "is_half": str(is_half)
-                }
-                gpu_names = gpu_numbers1a.split("-")
-                all_parts = len(gpu_names)
-                for i_part in range(all_parts):
-                    config.update(
-                        {
-                            "i_part": str(i_part),
-                            "all_parts": str(all_parts),
-                            "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                        }
-                    )
-                    os.environ.update(config)
-                    cmd = '"%s" GPT_SoVITS/prepare_datasets/1-get-text.py' % python_exec
-                    print(cmd)
-                    p = Popen(cmd, shell=True)
-                    ps1abc.append(p)
-                yield "进度：1a-ing", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-                for p in ps1abc: p.wait()
-
-                opt = []
-                for i_part in range(all_parts):  # txt_path="%s/2-name2text-%s.txt"%(opt_dir,i_part)
-                    txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
-                    with open(txt_path, "r", encoding="utf8") as f:
-                        opt += f.read().strip("\n").split("\n")
-                    os.remove(txt_path)
-                with open(path_text, "w", encoding="utf8") as f:
-                    f.write("\n".join(opt) + "\n")
-                assert len("".join(opt)) > 0, "1Aa-文本获取进程失败"
-            yield "进度：1a-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-            ps1abc = []
-            #############################1b
+        re_exp_root = exp_root + os.sep + user_id
+        opt_dir = "%s/%s" % (re_exp_root, exp_name)
+        # try:
+        #############################1a
+        path_text = "%s/2-name2text.txt" % opt_dir
+        if (os.path.exists(path_text) == False or (os.path.exists(path_text) == True and len(
+                open(path_text, "r", encoding="utf8").read().strip("\n").split("\n")) < 2)):
             config = {
                 "inp_text": inp_text,
                 "inp_wav_dir": inp_wav_dir,
                 "exp_name": exp_name,
                 "opt_dir": opt_dir,
-                "cnhubert_base_dir": ssl_pretrained_dir,
+                "bert_pretrained_dir": bert_pretrained_dir,
+                "is_half": str(is_half)
             }
-            gpu_names = gpu_numbers1Ba.split("-")
+            gpu_names = gpu_numbers1a.split("-")
             all_parts = len(gpu_names)
             for i_part in range(all_parts):
                 config.update(
@@ -1115,60 +1118,110 @@ def open1abc_remote(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1
                     }
                 )
                 os.environ.update(config)
-                cmd = '"%s" GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py' % python_exec
+                cmd = '"%s" GPT_SoVITS/prepare_datasets/1-get-text.py' % python_exec
                 print(cmd)
                 p = Popen(cmd, shell=True)
                 ps1abc.append(p)
-            yield "进度：1a-done, 1b-ing", {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                     "visible": True}
+            yield "进度：1a-ing", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
             for p in ps1abc: p.wait()
-            yield "进度：1a1b-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-            ps1abc = []
-            #############################1c
-            path_semantic = "%s/6-name2semantic.tsv" % opt_dir
-            if (os.path.exists(path_semantic) == False or (
-                    os.path.exists(path_semantic) == True and os.path.getsize(path_semantic) < 31)):
-                config = {
-                    "inp_text": inp_text,
-                    "exp_name": exp_name,
-                    "opt_dir": opt_dir,
-                    "pretrained_s2G": pretrained_s2G_path,
-                    "s2config_path": "GPT_SoVITS/configs/s2.json",
-                }
-                gpu_names = gpu_numbers1c.split("-")
-                all_parts = len(gpu_names)
-                for i_part in range(all_parts):
-                    config.update(
-                        {
-                            "i_part": str(i_part),
-                            "all_parts": str(all_parts),
-                            "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                        }
-                    )
-                    os.environ.update(config)
-                    cmd = '"%s" GPT_SoVITS/prepare_datasets/3-get-semantic.py' % python_exec
-                    print(cmd)
-                    p = Popen(cmd, shell=True)
-                    ps1abc.append(p)
-                yield "进度：1a1b-done, 1cing", {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                          "visible": True}
-                for p in ps1abc: p.wait()
 
-                opt = ["item_name\tsemantic_audio"]
-                for i_part in range(all_parts):
-                    semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
-                    with open(semantic_path, "r", encoding="utf8") as f:
-                        opt += f.read().strip("\n").split("\n")
-                    os.remove(semantic_path)
-                with open(path_semantic, "w", encoding="utf8") as f:
-                    f.write("\n".join(opt) + "\n")
-                yield "进度：all-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-            ps1abc = []
-            yield "一键三连进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-        except:
-            traceback.print_exc()
-            close1abc()
-            yield "一键三连中途报错", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+            opt = []
+            for i_part in range(all_parts):  # txt_path="%s/2-name2text-%s.txt"%(opt_dir,i_part)
+                txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
+                with open(txt_path, "r", encoding="utf8") as f:
+                    opt += f.read().strip("\n").split("\n")
+                os.remove(txt_path)
+            with open(path_text, "w", encoding="utf8") as f:
+                f.write("\n".join(opt) + "\n")
+            assert len("".join(opt)) > 0, "1Aa-文本获取进程失败"
+        yield "进度：1a-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+        ps1abc = []
+        #############################1b
+        config = {
+            "inp_text": inp_text,
+            "inp_wav_dir": inp_wav_dir,
+            "exp_name": exp_name,
+            "opt_dir": opt_dir,
+            "cnhubert_base_dir": ssl_pretrained_dir,
+        }
+        gpu_names = gpu_numbers1Ba.split("-")
+        all_parts = len(gpu_names)
+        for i_part in range(all_parts):
+            config.update(
+                {
+                    "i_part": str(i_part),
+                    "all_parts": str(all_parts),
+                    "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+                }
+            )
+            os.environ.update(config)
+            cmd = '"%s" GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py' % python_exec
+            print(cmd)
+            p = Popen(cmd, shell=True)
+            ps1abc.append(p)
+        yield "进度：1a-done, 1b-ing", {"__type__": "update", "visible": False}, {"__type__": "update",
+                                                                                 "visible": True}
+        for p in ps1abc: p.wait()
+        yield "进度：1a1b-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+        ps1abc = []
+        #############################1c
+        path_semantic = "%s/6-name2semantic.tsv" % opt_dir
+        if (os.path.exists(path_semantic) == False or (
+                os.path.exists(path_semantic) == True and os.path.getsize(path_semantic) < 31)):
+            config = {
+                "inp_text": inp_text,
+                "exp_name": exp_name,
+                "opt_dir": opt_dir,
+                "pretrained_s2G": pretrained_s2G_path,
+                "s2config_path": "GPT_SoVITS/configs/s2.json",
+            }
+            gpu_names = gpu_numbers1c.split("-")
+            all_parts = len(gpu_names)
+            for i_part in range(all_parts):
+                config.update(
+                    {
+                        "i_part": str(i_part),
+                        "all_parts": str(all_parts),
+                        "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+                    }
+                )
+                os.environ.update(config)
+                cmd = '"%s" GPT_SoVITS/prepare_datasets/3-get-semantic.py' % python_exec
+                print(cmd)
+                p = Popen(cmd, shell=True)
+                ps1abc.append(p)
+            yield "进度：1a1b-done, 1cing", {"__type__": "update", "visible": False}, {"__type__": "update",
+                                                                                      "visible": True}
+            for p in ps1abc: p.wait()
+
+            opt = ["item_name\tsemantic_audio"]
+            for i_part in range(all_parts):
+                semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
+                with open(semantic_path, "r", encoding="utf8") as f:
+                    opt += f.read().strip("\n").split("\n")
+                os.remove(semantic_path)
+            with open(path_semantic, "w", encoding="utf8") as f:
+                f.write("\n".join(opt) + "\n")
+            yield "进度：all-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+        ps1abc = []
+        yield "一键三连进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+        print("结束")
+        last_index = inp_text.rfind(os.sep)
+        last_index_text = inp_text[:last_index]
+        clear_file.delete_all_files_in_folder(last_index_text)
+        last_index = inp_wav_dir.rfind(os.sep)
+        inp_wav_dir = inp_wav_dir[:last_index]
+        clear_file.delete_all_files_in_folder(inp_wav_dir)
+        if not one_click_flag:
+            aliyun_oss.upload_directory(conf['root_path'] + exp_root + os.sep + user_id, user_id)
+            clear_file.delete_all_files_in_folder(conf['root_path'] + exp_root + os.sep + user_id)
+            # last_index = before_last_index_text.rfind(os.sep)
+            # inp_text = before_last_index_text[:last_index]
+            # clear_file.delete_all_files_in_folder(inp_text)
+    # except:
+    #     traceback.print_exc()
+    #     close1abc()
+    #     yield "一键三连中途报错", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
     else:
         yield "已有正在进行的一键三连任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
             "__type__": "update", "visible": True}
@@ -1193,7 +1246,6 @@ def switch_version(version_):
     if pretrained_sovits_name[-int(version[-1]) + 2] != '' and pretrained_gpt_name[-int(version[-1]) + 2] != '':
         ...
     else:
-        # gr.Warning(i18n(f'未下载{version.upper()}模型'))
         ...
     return {'__type__': 'update', 'value': pretrained_sovits_name[-int(version[-1]) + 2]}, {'__type__': 'update',
                                                                                             'value':
@@ -1215,8 +1267,319 @@ else:
     p.wait()
 
 
+def _one_click_del(path):
+    last_index = path.rfind(os.sep)
+    path = path[:last_index]
+    clear_file.delete_all_files_in_folder(path)
+
+
+def _get_slice_opt(inp):
+    inp = my_utils.clean_path(inp)
+    return my_utils.replace_last_part_of_path(inp, "slice")
+
+
+def _get_opt(inp, workspace, model):
+    opt = my_utils.replace_workspace_folder(inp, workspace)
+    return my_utils.replace_last_part_of_path(opt, model)
+
+
+def one_click(requestData):
+    try:
+        yield json.dumps({
+            "mode": "slice",
+            "status": "start",
+            "message": "slice阶段开始",
+            "session_id": requestData['session_id']
+        })
+        result_slice = open_slice_remote(
+            requestData['inp'],
+            requestData['threshold'],
+            requestData['min_length'],
+            requestData['min_interval'],
+            requestData['hop_size'],
+            requestData['max_sil_kept'],
+            requestData['max'],
+            requestData['alpha'],
+            requestData['n_parts'],
+            True
+        )
+        print(list(result_slice))
+        print("slice阶段完成")
+        yield json.dumps({
+            "mode": "slice",
+            "status": "completed",
+            "message": "slice阶段完成",
+            "session_id": requestData['session_id']
+        })
+        time.sleep(1)
+    except Exception as e:
+        print(e)
+        return json.dumps({
+            "mode": "slice",
+            "status": "failed",
+            "message": "slice阶段失败",
+            "session_id": requestData['session_id']
+        })
+
+    slice_opt = _get_slice_opt(requestData['inp'])
+    print("slice输出路径:  ", slice_opt)
+    try:
+        yield json.dumps({
+            "model": "denoise",
+            "status": "start",
+            "message": "denoise阶段开始",
+            "session_id": requestData['session_id']
+        })
+        result_denoise = open_denoise_remote(
+            slice_opt,
+            True
+        )
+        print(list(result_denoise))
+        print("denoise阶段完成")
+        yield json.dumps({
+            "model": "denoise",
+            "status": "completed",
+            "message": "denoise阶段完成",
+            "session_id": requestData['session_id']
+        })
+        time.sleep(1)
+    except Exception as e:
+        print(e)
+        return json.dumps({
+            "model": "denoise",
+            "status": "failed",
+            "message": "denoise阶段失败",
+            "session_id": requestData['session_id']
+        })
+
+    denoise_opt = _get_opt(slice_opt, "denoise_workspace", "denoise")
+    print("denoise输出路径:  ", denoise_opt)
+    try:
+        yield json.dumps({
+            "model": "asr",
+            "status": "start",
+            "message": "asr阶段开始",
+            "session_id": requestData['session_id']
+        })
+        result_asr = open_asr_remote(
+            denoise_opt,
+            requestData['asr_model'],
+            requestData['asr_model_size'],
+            requestData['asr_lang'],
+            requestData['asr_precision'],
+            True
+        )
+        print(list(result_asr))
+        print("asr阶段完成")
+        yield json.dumps({
+            "model": "asr",
+            "status": "completed",
+            "message": "asr阶段完成",
+            "session_id": requestData['session_id']
+        })
+        time.sleep(1)
+    except Exception as e:
+        print(e)
+        return json.dumps({
+            "model": "asr",
+            "status": "failed",
+            "message": "asr阶段失败",
+            "session_id": requestData['session_id']
+        })
+
+    asr_opt = _get_opt(denoise_opt, "asr_workspace", "asr")
+    print("asr输出路径:  ", asr_opt)
+    try:
+        yield json.dumps({
+            "model": "1abc",
+            "status": "start",
+            "message": "1abc格式化阶段开始",
+            "session_id": requestData['session_id']
+        })
+
+        result_1abc = open1abc_remote(
+            asr_opt,
+            denoise_opt,
+            requestData['exp_name'],
+            requestData['gpu_numbers1a'],
+            requestData['gpu_numbers1Ba'],
+            requestData['gpu_numbers1c'],
+            requestData['bert_pretrained_dir'],
+            requestData['ssl_pretrained_dir'],
+            requestData['pretrained_s2G_path'],
+            requestData['user_id'],
+            True
+        )
+        print(list(result_1abc))
+        print("1abc格式阶段已完成")
+        yield json.dumps({
+            "model": "1abc",
+            "status": "completed",
+            "message": "1abc格式化阶段已完成",
+            "session_id": requestData['session_id']
+        })
+        time.sleep(1)
+    except Exception as e:
+        print(e)
+        return json.dumps({
+            "model": "1abc",
+            "status": "failed",
+            "message": "1abc格式化阶段失败",
+            "session_id": requestData['session_id']
+        })
+
+    try:
+        yield json.dumps({
+            "model": "1ba",
+            "status": "start",
+            "message": "1ba_soVITS_train阶段开始",
+            "session_id": requestData['session_id']
+        })
+        ba_result = open1Ba(
+            requestData['batch_size'],
+            requestData['total_epoch'],
+            requestData['exp_name'],
+            requestData['text_low_lr_rate'],
+            requestData['if_save_latest'],
+            requestData['if_save_every_weights'],
+            requestData['save_every_epoch'],
+            requestData['gpu_numbers1Ba_Ba'],
+            requestData['pretrained_s2G'],
+            requestData['pretrained_s2D'],
+            requestData['user_id']
+        )
+        print(list(ba_result))
+        print("1ba_soVITS_train阶段已完成")
+        yield json.dumps({
+            "model": "1ba",
+            "status": "completed",
+            "message": "1ba_soVITS_train阶段已完成",
+            "session_id": requestData['session_id']
+        })
+        time.sleep(1)
+    except Exception as e:
+        print(e)
+        return json.dumps({
+            "model": "1ba",
+            "status": "failed",
+            "message": "1ba_soVITS_train阶段失败",
+            "session_id": requestData['session_id']
+        })
+    try:
+        yield json.dumps({
+            "model": "1bb",
+            "status": "start",
+            "message": "1bb_gpt_train阶段开始",
+            "session_id": requestData['session_id']
+        })
+        result_bb = open1Bb(
+            requestData['batch_size_Bb'],
+            requestData['total_epoch_Bb'],
+            requestData['exp_name'],
+            requestData['if_dpo'],
+            requestData['if_save_latest'],
+            requestData['if_save_every_weights'],
+            requestData['save_every_epoch_Bb'],
+            requestData['gpu_numbers'],
+            requestData['pretrained_s1'],
+            requestData['user_id'],
+            requestData['inp_path']
+        )
+        print(list(result_bb))
+        print("1bb_gpt_train阶段已完成")
+        yield json.dumps({
+            "model": "1bb",
+            "status": "completed",
+            "message": "1bb_gpt_train阶段已完成",
+            "session_id": requestData['session_id']
+        })
+        time.sleep(1)
+    except Exception as e:
+        print(e)
+        return json.dumps({
+            "model": "1bb",
+            "status": "failed",
+            "message": "1bb_gpt_train阶段失败",
+            "session_id": requestData['session_id']
+        })
+    yield json.dumps({
+        "mode": "end",
+        "status": "completed",
+        "message": "全部任务已完成",
+        "session_id": requestData['session_id']
+    })
+
+
+class all_options(BaseModel):
+    inp: str
+    session_id: str
+    exp_name: str
+    user_id: str
+    threshold: Optional[int] = -34
+    min_length: Optional[int] = 4000
+    min_interval: Optional[int] = 300
+    hop_size: Optional[int] = 10
+    max_sil_kept: Optional[int] = 500
+    max: Optional[float] = 0.9
+    alpha: Optional[float] = 0.25
+    n_parts: Optional[int] = 4
+    asr_model: Optional[str] = "达摩 ASR (中文)"
+    asr_model_size: Optional[str] = "large"
+    asr_lang: Optional[str] = "zh"
+    asr_precision: Optional[str] = "float32"
+    gpu_numbers1a: Optional[str] = "0-0"
+    gpu_numbers1Ba: Optional[str] = "0-0"
+    gpu_numbers1c: Optional[str] = "0-0"
+    bert_pretrained_dir: Optional[str] = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"
+    ssl_pretrained_dir: Optional[str] = "GPT_SoVITS/pretrained_models/chinese-hubert-base"
+    pretrained_s2G_path: Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"
+    inp_path: Optional[str] = ""
+    if_save_latest: Optional[bool] = True
+    if_save_every_weights: Optional[bool] = True
+    batch_size: Optional[int] = 3
+    total_epoch: Optional[int] = 8
+    text_low_lr_rate: Optional[float] = 0.4
+    save_every_epoch: Optional[int] = 4
+    gpu_numbers1Ba_Ba: Optional[str] = "0"
+    pretrained_s2G: Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"
+    pretrained_s2D: Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2D2333k.pth"
+    batch_size_Bb: Optional[int] = 3
+    total_epoch_Bb: Optional[int] = 15
+    if_dpo: Optional[bool] = True
+    save_every_epoch_Bb: Optional[int] = 5
+    gpu_numbers: Optional[str] = "0"
+    pretrained_s1: Optional[
+        str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"
+
+
+@app.post("/gpt_sovits/one_click")
+async def one_click_api(request: all_options):
+    try:
+        startEmit("one_click", request.dict())
+        return {"status": "success", "message": "开始一键训练"}
+    except Exception as e:
+        logger.error(f"开始一键训练时异常: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
 def sync(text):
     return {'__type__': 'update', 'value': text}
+
+
+def startEmit(exchange, requestData):
+    # 建立连接和频道
+    # 这里使用默认的配置
+    connection = mq_config.create_connection()
+    channel = connection.channel()
+
+    # 声明交换机
+    channel.exchange_declare(exchange=exchange, exchange_type='direct', durable=True)
+    body = json.dumps(requestData)
+    # 发送消息，转换 requestData 为 JSON 格式的字符串
+    mq_config.publish_with_retry(channel=channel, exchange=exchange, routing_key='start', body=body)
+    print(f"请求({exchange})已发送:", json.dumps(requestData))
+    # 关闭连接
+    connection.close()
 
 
 # class sliceRequest(BaseModel):
@@ -1234,12 +1597,13 @@ def sync(text):
 
 class sliceRequestRemote(BaseModel):
     inp: str
+    session_id: str
     threshold: Optional[int] = -34
     min_length: Optional[int] = 4000
     min_interval: Optional[int] = 300
     hop_size: Optional[int] = 10
     max_sil_kept: Optional[int] = 500
-    _max: Optional[float] = 0.9
+    max: Optional[float] = 0.9
     alpha: Optional[float] = 0.25
     n_parts: Optional[int] = 4
 
@@ -1247,19 +1611,11 @@ class sliceRequestRemote(BaseModel):
 @app.post("/gpt_sovits/open_slice")
 async def open_slice_api(request: sliceRequestRemote):
     try:
-        result = open_slice_remote(
-            request.inp,
-            request.threshold,
-            request.min_length,
-            request.min_interval,
-            request.hop_size,
-            request.max_sil_kept,
-            request._max,
-            request.alpha,
-            request.n_parts
+        startEmit(
+            "slice",
+            request.dict()
         )
-        print(list(result))
-        return {"status": "success", "message": "成功进行音频切割"}
+        return {"status": "success", "message": "开始音频切割"}
     except Exception as e:
         logger.error(f"进行音频切割时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1271,16 +1627,17 @@ async def open_slice_api(request: sliceRequestRemote):
 
 class denoiseRequestRemote(BaseModel):
     denoise_inp_dir: str
+    session_id: str
 
 
 @app.post("/gpt_sovits/open_denoise")
 async def open_denoise_api(reqeust: denoiseRequestRemote):
     try:
-        result = open_denoise_remote(
-            reqeust.denoise_inp_dir
+        startEmit(
+            "denoise",
+            reqeust.dict()
         )
-        print(list(result))
-        return {"status": "success", "message": "成功进行音频降噪"}
+        return {"status": "success", "message": "开始音频降噪"}
     except:
         logger.error(f"进行音频降噪时异常: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1297,6 +1654,7 @@ async def open_denoise_api(reqeust: denoiseRequestRemote):
 
 class asrRequestRemote(BaseModel):
     asr_inp_dir: str
+    session_id: str
     asr_model: Optional[str] = "达摩 ASR (中文)"
     asr_model_size: Optional[str] = "large"
     asr_lang: Optional[str] = "zh"
@@ -1306,15 +1664,10 @@ class asrRequestRemote(BaseModel):
 @app.post("/gpt_sovits/open_asr")
 async def open_asr_api(request: asrRequestRemote):
     try:
-        result = open_asr_remote(
-            request.asr_inp_dir,
-            request.asr_model,
-            request.asr_model_size,
-            request.asr_lang,
-            request.asr_precision
-        )
-        print(list(result))
-        return {"status": "success", "message": "成功进行ASR"}
+        startEmit(
+            "asr",
+            request.dict())
+        return {"status": "success", "message": "开始进行ASR"}
     except:
         logger.error(f"进行ASR时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1324,6 +1677,8 @@ class abcRequest(BaseModel):
     inp_text: str
     inp_wav_dir: str
     exp_name: str
+    user_id: str
+    session_id: str
     gpu_numbers1a: Optional[str] = "0-0"
     gpu_numbers1Ba: Optional[str] = "0-0"
     gpu_numbers1c: Optional[str] = "0-0"
@@ -1335,19 +1690,10 @@ class abcRequest(BaseModel):
 @app.post("/gpt_sovits/open1abc")
 async def open_1abc_api(request: abcRequest):
     try:
-        result = open1abc_remote(
-            request.inp_text,
-            request.inp_wav_dir,
-            request.exp_name,
-            request.gpu_numbers1a,
-            request.gpu_numbers1Ba,
-            request.gpu_numbers1c,
-            request.bert_pretrained_dir,
-            request.ssl_pretrained_dir,
-            request.pretrained_s2G_path
-        )
-        print(list(result))
-        return {"status": "success", "message": "成功进行一键三连"}
+        startEmit(
+            "1abc",
+            request.dict())
+        return {"status": "success", "message": "开始进行一键三连"}
     except:
         logger.error(f"进行一键三连时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1355,6 +1701,9 @@ async def open_1abc_api(request: abcRequest):
 
 class sovitsTrainRequest(BaseModel):
     exp_name: str
+    user_id: str
+    session_id: str
+    inp_path: Optional[str] = ""
     if_save_latest: Optional[bool] = True
     if_save_every_weights: Optional[bool] = True
     batch_size: Optional[int] = 3
@@ -1369,20 +1718,10 @@ class sovitsTrainRequest(BaseModel):
 @app.post("/gpt_sovits/sovits_train")
 async def sovits_train_api(request: sovitsTrainRequest):
     try:
-        result = open1Ba(
-            request.batch_size,
-            request.total_epoch,
-            request.exp_name,
-            request.text_low_lr_rate,
-            request.if_save_latest,
-            request.if_save_every_weights,
-            request.save_every_epoch,
-            request.gpu_numbers1Ba,
-            request.pretrained_s2G,
-            request.pretrained_s2D
-        )
-        print(list(result))
-        return {"status": "success", "message": "成功进行sovits训练"}
+        startEmit(
+            "1Ba",
+            request.dict())
+        return {"status": "success", "message": "开始进行sovits训练"}
     except:
         logger.error(f"进行sovits训练时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1390,6 +1729,9 @@ async def sovits_train_api(request: sovitsTrainRequest):
 
 class gptTrainRequest(BaseModel):
     exp_name: str
+    user_id: str
+    session_id: str
+    inp_path: Optional[str] = ""
     batch_size: Optional[int] = 3
     total_epoch: Optional[int] = 15
     if_dpo: Optional[bool] = True
@@ -1404,19 +1746,11 @@ class gptTrainRequest(BaseModel):
 @app.post("/gpt_sovits/gpt_train")
 async def gpt_train_api(request: gptTrainRequest):
     try:
-        result = open1Bb(
-            request.batch_size,
-            request.total_epoch,
-            request.exp_name,
-            request.if_dpo,
-            request.if_save_latest,
-            request.if_save_every_weights,
-            request.save_every_epoch,
-            request.gpu_numbers,
-            request.pretrained_s1
+        startEmit(
+            "1Bb",
+            request.dict()
         )
-        print(list(result))
-        return {"status": "success", "message": "成功进行gpt训练"}
+        return {"status": "success", "message": "开始进行gpt训练"}
     except:
         logger.error(f"进行gpt训练时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

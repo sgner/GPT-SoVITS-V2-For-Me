@@ -95,11 +95,13 @@ RESP:
 失败: 返回包含错误信息的 json, http code 400
     
 """
+from pydantic.v1 import root_validator
+
 import os
 import sys
 import traceback
 from typing import Generator
-
+from typing import Optional
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 sys.path.append("%s/GPT_SoVITS" % (now_dir))
@@ -166,26 +168,27 @@ APP.add_middleware(
 
 
 class TTS_Request(BaseModel):
-    text: str = None
-    text_lang: str = None
-    ref_audio_path: str = None
-    aux_ref_audio_paths: list = None
-    prompt_lang: str = None
-    prompt_text: str = ""
-    top_k:int = 5
-    top_p:float = 1
-    temperature:float = 1
-    text_split_method:str = "cut5"
-    batch_size:int = 1
-    batch_threshold:float = 0.75
-    split_bucket:bool = True
-    speed_factor:float = 1.0
-    fragment_interval:float = 0.3
-    seed:int = -1
-    media_type:str = "wav"
-    streaming_mode:bool = False
-    parallel_infer:bool = True
-    repetition_penalty:float = 1.35
+    text: str
+    text_lang: str
+    ref_audio_path: str
+    prompt_lang: str
+    prompt_text: str
+    streaming_mode: Optional[bool] = False
+    aux_ref_audio_paths: Optional[list] = None
+    top_k: Optional[int] = 5
+    top_p: Optional[float] = 1
+    temperature: Optional[float] = 1
+    text_split_method: Optional[str] = "cut5"
+    batch_size: Optional[int] = 1
+    batch_threshold: Optional[float] = 0.75
+    split_bucket: Optional[bool] = True
+    speed_factor: Optional[float] = 1.0
+    fragment_interval: Optional[float] = 0.3
+    seed: Optional[int] = -1
+    media_type: Optional[str] = "wav"
+    parallel_infer: Optional[bool] = True
+    repetition_penalty: Optional[float] = 1.35
+
 
 ### modify from https://github.com/RVC-Boss/GPT-SoVITS/pull/894/files
 def pack_ogg(io_buffer:BytesIO, data:np.ndarray, rate:int):
@@ -349,7 +352,7 @@ async def tts_handle(req:dict):
                     yield pack_audio(BytesIO(), chunk, sr, media_type).getvalue()
             # _media_type = f"audio/{media_type}" if not (streaming_mode and media_type in ["wav", "raw"]) else f"audio/x-{media_type}"
             return StreamingResponse(streaming_generator(tts_generator, media_type, ), media_type=f"audio/{media_type}")
-    
+
         else:
             sr, audio_data = next(tts_generator)
             audio_data = pack_audio(BytesIO(), audio_data, sr, media_type).getvalue()
@@ -429,7 +432,7 @@ async def tts_get_endpoint_srt(request: Request,
                         ref_audio_path: str = None,
                         prompt_lang: str = None,
                         prompt_text: str = "",
-                        top_k:int = 5,
+                        top_k: Optional[int] = 5,
                         top_p:float = 1,
                         temperature:float = 1,
                         text_split_method:str = "cut5",
@@ -524,7 +527,38 @@ async def tts_get_endpoint(
 
 @APP.post("/")
 async def tts_post_endpoint(request: TTS_Request):
-    req = request.dict()
+    def set_defaults(values):
+        # 自定义的默认值
+        default_values = {
+            "text": "",
+            "text_lang": "zh",
+            "ref_audio_path": "",
+            "aux_ref_audio_paths": [],
+            "prompt_lang": "zh",
+            "top_k": 5,
+            "top_p": 1.0,
+            "temperature": 1.0,
+            "text_split_method": "cut5",
+            "batch_size": 1,
+            "batch_threshold": 0.75,
+            "split_bucket": True,
+            "speed_factor": 1.0,
+            "fragment_interval": 0.3,
+            "seed": -1,
+            "media_type": "wav",
+            "streaming_mode": True,
+            "parallel_infer": True,
+            "repetition_penalty": 1.35,
+        }
+
+        # 检查每个字段，若为None或不传，则替换为默认值
+        for key, default_value in default_values.items():
+            if key not in values or values[key] is None or values[key] == 0.0 or values[key] == 0:
+                values[key] = default_value
+        return values
+
+    req = set_defaults(request.dict())
+    print(req)
     return await tts_handle(req)
 
 

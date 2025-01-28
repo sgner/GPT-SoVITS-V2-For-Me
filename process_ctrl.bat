@@ -10,5 +10,5 @@ SET PYTHON_BIN_PATH=%PYTHON_EXECUTABLE%
 SET PYTHON_LIB_PATH=%PYTHON_PATH%\Lib\site-packages
 SET FFMPEG_PATH=%cd%\runtime\ffmpeg\bin
 SET PATH=%PYTHON_PATH%;%PYTHON_PATH%\Scripts;%FFMPEG_PATH%;%PATH%
-"%PYTHON_EXECUTABLE%" uvr5_api.py cuda True 9877 False
+"%PYTHON_EXECUTABLE%" mq\process_direct.py cuda True 9877 False
 pause
