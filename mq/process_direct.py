@@ -1,6 +1,8 @@
 import json
 import threading
+import time
 import mq.config as mq_config
+import math
 from uvr5_api import uvr_remote
 from gpt_soVITS_api import open_slice_remote, open_denoise_remote, open_asr_remote, open1abc_remote, open1Ba, open1Bb, \
     close1abc, one_click
@@ -91,6 +93,7 @@ def startSliceReceive():
                 print("接收到的请求数据:", requestData)
                 print("开始执行slice")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
+                start_time = time.time()
                 result = open_slice_remote(
                     requestData['inp'],
                     requestData['threshold'],
@@ -100,20 +103,37 @@ def startSliceReceive():
                     requestData['max_sil_kept'],
                     requestData['max'],
                     requestData['alpha'],
-                    requestData['n_parts']
+                    requestData['n_parts'],
+                    requestData['session_id'],
                 )
-                print(list(result))
+                for err in result:
+                    if err is not None:
+                        endSliceEmit(
+                            err
+                        )
+                        return
+                end_time = time.time()
+                time_cost = end_time - start_time
                 print("slice 已完成")
                 endSliceEmit(
-                    json.dumps({"session_id": session_id,
-                                "status": "success"
-                                })
+                    json.dumps({
+                        "type": "end_message",
+                        "model": "slice",
+                        "status": "completed",
+                        "message": "slice阶段完成",
+                        "session_id": session_id,
+                        "dur": math.floor(time_cost)
+                    })
                 )
             except Exception as e:
                 endSliceEmit(
-                    json.dumps({"session_id": session_id,
-                                "status": "error"
-                                })
+                    json.dumps({
+                        "type": "end_message",
+                        "session_id": session_id,
+                        "status": "failed",
+                        "model": "slice",
+                        "message": "slice阶段失败",
+                    })
                 )
                 print(e)
 
@@ -154,21 +174,40 @@ def startDenoiseReceive():
                 print("接收到的请求数据:", requestData)
                 print("开始执行denoise")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
+                start_time = time.time()
                 result = open_denoise_remote(
-                    requestData['denoise_inp_dir']
+                    requestData['denoise_inp_dir'],
+                    session_id
                 )
-                print(list(result))
+                for err in result:
+                    if (err != None):
+                        endDenoiseEmit(
+                            err
+                        )
+                        print("denoise 异常")
+                        return
+                end_time = time.time()
+                time_cost = end_time - start_time
                 print("denoise 已完成")
                 endDenoiseEmit(
                     json.dumps({
+                        "type": "end_message",
+                        "model": "denoise",
+                        "status": "completed",
+                        "message": "denoise阶段完成",
                         "session_id": session_id,
-                        "status": "success"
-                    }))
+                        "dur": math.floor(time_cost)
+                    })
+                )
             except Exception as e:
                 endDenoiseEmit(
-                    json.dumps({"session_id": session_id,
-                                "status": "error"
-                                })
+                    json.dumps({
+                        "type": "end_message",
+                        "session_id": session_id,
+                        "status": "failed",
+                        "model": "denoise",
+                        "message": "denoise阶段失败",
+                    })
                 )
                 print(e)
 
@@ -209,24 +248,41 @@ def startAsrReceive():
                 print("接收到的请求数据:", requestData)
                 print("开始执行asr")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
+                start_time = time.time()
                 result = open_asr_remote(
                     requestData['asr_inp_dir'],
                     requestData['asr_model'],
                     requestData['asr_model_size'],
                     requestData['asr_lang'],
-                    requestData['asr_precision']
+                    requestData['asr_precision'],
+                    requestData['session_id']
                 )
-                print(list(result))
+                for err in result:
+                    if err is not None:
+                        endAsrEmit(
+                            err
+                        )
+                        return
+                end_time = time.time()
+                time_cost = end_time - start_time
                 print("asr 已完成")
                 endAsrEmit(json.dumps({
+                    "type": "end_message",
+                    "model": "asr",
+                    "status": "completed",
+                    "message": "asr阶段完成",
                     "session_id": session_id,
-                    "status": "success"
+                    "dur": math.floor(time_cost)
                 }))
             except Exception as e:
                 endAsrEmit(
-                    json.dumps({"session_id": session_id,
-                                "status": "error"
-                                })
+                    json.dumps({
+                        "type": "end_message",
+                        "session_id": session_id,
+                        "status": "failed",
+                        "model": "asr",
+                        "message": "asr阶段失败",
+                    })
                 )
                 print(e)
 
@@ -267,6 +323,7 @@ def start1abcReceive():
                 print("接收到的请求数据:", requestData)
                 print("开始执行1abc")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
+                start_time = time.time()
                 result = open1abc_remote(
                     requestData['inp_text'],
                     requestData['inp_wav_dir'],
@@ -277,19 +334,34 @@ def start1abcReceive():
                     requestData['bert_pretrained_dir'],
                     requestData['ssl_pretrained_dir'],
                     requestData['pretrained_s2G_path'],
-                    requestData['user_id']
+                    requestData['user_id'],
+                    requestData['session_id']
                 )
-                print(list(result))
+                for err in result:
+                    if err is not None:
+                        end1abcEmit(
+                            err
+                        )
+                        return
+                end_time = time.time()
+                time_cost = end_time - start_time
                 print("1abc 已完成")
                 end1abcEmit(json.dumps({
+                    "type": "end_message",
+                    "model": "format",
+                    "status": "completed",
+                    "message": "format阶段完成",
                     "session_id": session_id,
-                    "status": "success"
+                    "dur": math.floor(time_cost)
                 }))
             except Exception as e:
                 close1abc()
                 end1abcEmit(json.dumps({
+                    "type": "end_message",
                     "session_id": session_id,
-                    "status": "error"
+                    "status": "failed",
+                    "model": "format",
+                    "message": "format阶段失败",
                 }))
                 print(e)
 
@@ -330,6 +402,7 @@ def start1BaReceive():
                 print("接收到的请求数据:", requestData)
                 print("开始执行1Ba")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
+                start_time = time.time()
                 result = open1Ba(
                     requestData['batch_size'],
                     requestData['total_epoch'],
@@ -342,18 +415,33 @@ def start1BaReceive():
                     requestData['pretrained_s2G'],
                     requestData['pretrained_s2D'],
                     requestData['user_id'],
+                    requestData['session_id'],
                     requestData['inp_path']
                 )
-                print(list(result))
+                for err in result:
+                    if err is not None:
+                        end1BaEmit(
+                            err
+                        )
+                        return
+                end_time = time.time()
+                time_cost = end_time - start_time
                 print("1Ba 已完成")
                 end1BaEmit(json.dumps({
+                    "type": "end_message",
+                    "model": "sovitsTrain",
+                    "status": "completed",
+                    "message": "sovitsTrain阶段完成",
                     "session_id": session_id,
-                    "status": "success"
+                    "dur": math.floor(time_cost)
                 }))
             except Exception as e:
                 end1BaEmit(json.dumps({
+                    "type": "end_message",
                     "session_id": session_id,
-                    "status": "error"
+                    "status": "failed",
+                    "model": "sovitsTrain",
+                    "message": "sovitsTrain阶段失败",
                 }))
                 print(e)
 
@@ -394,6 +482,7 @@ def start1BbReceive():
                 print("接收到的请求数据:", requestData)
                 print("开始执行1Bb")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
+                start_time = time.time()
                 result = open1Bb(
                     requestData['batch_size'],
                     requestData['total_epoch'],
@@ -405,18 +494,33 @@ def start1BbReceive():
                     requestData['gpu_numbers'],
                     requestData['pretrained_s1'],
                     requestData['user_id'],
-                    requestData['inp_path']
+                    requestData['inp_path'],
+                    requestData['session_id']
                 )
-                print(list(result))
+                for err in result:
+                    if err is not None:
+                        end1BbEmit(
+                            err
+                        )
+                        return
+                end_time = time.time()
+                time_cost = end_time - start_time
                 print("1Bb 已完成")
                 end1BbEmit(json.dumps({
+                    "type": "end_message",
+                    "model": "gptTrain",
+                    "status": "completed",
+                    "message": "gptTrain阶段完成",
                     "session_id": session_id,
-                    "status": "success"
+                    "dur": math.floor(time_cost)
                 }))
             except Exception as e:
                 end1BbEmit(json.dumps({
+                    "type": "end_message",
                     "session_id": session_id,
-                    "status": "error"
+                    "status": "failed",
+                    "model": "gptTrain",
+                    "message": "gptTrain阶段失败",
                 }))
                 print(e)
 
@@ -467,6 +571,7 @@ def startOneClickReceive():
                 print("one_click 已完成")
             except Exception as e:
                 one_click_process_emit(json.dumps({
+                    "type": "fail",
                     "session_id": session_id,
                     "status": "error"
                 }))
@@ -504,7 +609,6 @@ if __name__ == "__main__":
     Ba_thread = threading.Thread(target=start1BaReceive)
     Bb_thread = threading.Thread(target=start1BbReceive)
     one_click_thread = threading.Thread(target=startOneClickReceive)
-
 
     uvr5_thread.daemon = True  # 使其成为守护线程，主程序结束时自动关闭
     slice_thread.daemon = True  # 使其成为守护线程，主程序结束时自动关闭

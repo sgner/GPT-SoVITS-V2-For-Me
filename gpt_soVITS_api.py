@@ -1,3 +1,4 @@
+import math
 import time
 
 import os, sys
@@ -334,7 +335,7 @@ def open_asr(asr_inp_dir, asr_opt_dir, asr_model, asr_model_size, asr_lang, asr_
         # return None
 
 
-def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precision, one_click_flag=False):
+def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precision, session_id, one_click_flag=False):
     global p_asr
     if (p_asr == None):
         with open('conf.yaml', 'r') as f:
@@ -348,8 +349,10 @@ def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precis
             asr_opt_dir = my_utils.replace_last_part_of_path(asr_opt_dir, "asr")
         else:
             asr_inp_dir = aliyun_oss.download_list_file(mark_inp)
-            asr_opt_dir = my_utils.replace_last_part_of_path(asr_inp_dir, "asr")
+            asr_opt_dir = my_utils.replace_workspace_folder(asr_inp_dir, "asr_workspace")
+            asr_opt_dir = my_utils.replace_last_part_of_path(asr_opt_dir, "asr")
             print("inp:  " + asr_inp_dir)
+            print("opt:  " + asr_opt_dir)
         asr_inp_dir = my_utils.clean_path(asr_inp_dir)
         asr_opt_dir = my_utils.clean_path(asr_opt_dir)
         check_for_existance([asr_inp_dir])
@@ -362,18 +365,19 @@ def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precis
         output_file_name = os.path.basename(asr_inp_dir)
         output_folder = asr_opt_dir or "output/asr_opt"
         output_file_path = os.path.abspath(f'{output_folder}/{output_file_name}.list')
-        yield "ASR任务开启：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                 "visible": True}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
         print(cmd)
-        p_asr = Popen(cmd, shell=True)
-        p_asr.wait()
-        p_asr = None
-        yield f"ASR任务完成, 查看终端进行下一步", {"__type__": "update", "visible": True}, {"__type__": "update",
-                                                                                            "visible": False}, {
-            "__type__": "update", "value": output_file_path}, {"__type__": "update", "value": output_file_path}, {
-            "__type__": "update", "value": asr_inp_dir}
-
+        try:
+            p_asr = Popen(cmd, shell=True)
+            p_asr.wait()
+            p_asr = None
+        except Exception as e:
+            yield json.dumps({
+                "type": "end_message",
+                "session_id": session_id,
+                "status": "failed",
+                "model": "asr",
+                "message": "error",
+            })
         aliyun_oss.upload_list_file(asr_opt_dir)
         if not one_click_flag:
             clear_file.delete_all_files_in_folder(asr_inp_dir)
@@ -381,9 +385,13 @@ def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precis
             asr_opt_dir = asr_opt_dir[:last_index]
             clear_file.delete_all_files_in_folder(asr_opt_dir)
     else:
-        yield "已有正在进行的ASR任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
-            "__type__": "update"}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "asr",
+            "message": "over",
+        })
         # return None
 
 
@@ -395,32 +403,32 @@ def close_asr():
     return "已终止ASR进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
 
 
-def open_denoise(denoise_inp_dir, denoise_opt_dir):
-    global p_denoise
-    if (p_denoise == None):
-        denoise_inp_dir = my_utils.clean_path(denoise_inp_dir)
-        denoise_opt_dir = my_utils.clean_path(denoise_opt_dir)
-        check_for_existance([denoise_inp_dir])
-        cmd = '"%s" tools/cmd-denoise.py -i "%s" -o "%s" -p %s' % (
-            python_exec, denoise_inp_dir, denoise_opt_dir, "float16" if is_half == True else "float32")
+# def open_denoise(denoise_inp_dir, denoise_opt_dir):
+#     global p_denoise
+#     if (p_denoise == None):
+#         denoise_inp_dir = my_utils.clean_path(denoise_inp_dir)
+#         denoise_opt_dir = my_utils.clean_path(denoise_opt_dir)
+#         check_for_existance([denoise_inp_dir])
+#         cmd = '"%s" tools/cmd-denoise.py -i "%s" -o "%s" -p %s' % (
+#             python_exec, denoise_inp_dir, denoise_opt_dir, "float16" if is_half == True else "float32")
+#
+#         yield "语音降噪任务开启：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
+#                                                                                       "visible": True}, {
+#             "__type__": "update"}, {"__type__": "update"}
+#         print(cmd)
+#         p_denoise = Popen(cmd, shell=True)
+#         p_denoise.wait()
+#         p_denoise = None
+#         yield f"语音降噪任务完成, 查看终端进行下一步", {"__type__": "update", "visible": True}, {"__type__": "update",
+#                                                                                                  "visible": False}, {
+#             "__type__": "update", "value": denoise_opt_dir}, {"__type__": "update", "value": denoise_opt_dir}
+#     else:
+#         yield "已有正在进行的语音降噪任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}
+#         # return None
 
-        yield "语音降噪任务开启：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                      "visible": True}, {
-            "__type__": "update"}, {"__type__": "update"}
-        print(cmd)
-        p_denoise = Popen(cmd, shell=True)
-        p_denoise.wait()
-        p_denoise = None
-        yield f"语音降噪任务完成, 查看终端进行下一步", {"__type__": "update", "visible": True}, {"__type__": "update",
-                                                                                                 "visible": False}, {
-            "__type__": "update", "value": denoise_opt_dir}, {"__type__": "update", "value": denoise_opt_dir}
-    else:
-        yield "已有正在进行的语音降噪任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}
-        # return None
 
-
-def open_denoise_remote(denoise_inp_dir, one_click_flag=False):
+def open_denoise_remote(denoise_inp_dir, session_id, one_click_flag=False):
     global p_denoise
     if (p_denoise == None):
         with open("conf.yaml", 'r') as f:
@@ -434,22 +442,29 @@ def open_denoise_remote(denoise_inp_dir, one_click_flag=False):
             denoise_opt_dir = my_utils.replace_last_part_of_path(denoise_opt_dir, "denoise")
         else:
             denoise_inp_dir = aliyun_oss.download_list_file(denoise_inp_dir_mark)
-            denoise_opt_dir = my_utils.replace_last_part_of_path(denoise_inp_dir, "denoise")
-        print("OUT!!!!" + denoise_inp_dir)
+            denoise_opt_dir = my_utils.replace_workspace_folder(denoise_inp_dir, "denoise_workspace")
+            denoise_opt_dir = my_utils.replace_last_part_of_path(denoise_opt_dir, "denoise")
+        print(denoise_inp_dir)
         check_for_existance([denoise_inp_dir])
         cmd = '"%s" tools/cmd-denoise.py -i "%s" -o "%s" -p %s' % (
             python_exec, denoise_inp_dir, denoise_opt_dir, "float16" if is_half == True else "float32")
 
-        yield "语音降噪任务开启：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                      "visible": True}, {
-            "__type__": "update"}, {"__type__": "update"}
+        # yield "语音降噪任务开启：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
+        #                                                                               "visible": True}, {
+        #     "__type__": "update"}, {"__type__": "update"}
         print(cmd)
-        p_denoise = Popen(cmd, shell=True)
-        p_denoise.wait()
-        p_denoise = None
-        yield f"语音降噪任务完成, 查看终端进行下一步", {"__type__": "update", "visible": True}, {"__type__": "update",
-                                                                                                 "visible": False}, {
-            "__type__": "update", "value": denoise_opt_dir}, {"__type__": "update", "value": denoise_opt_dir}
+        try:
+            p_denoise = Popen(cmd, shell=True)
+            p_denoise.wait()
+            p_denoise = None
+        except Exception as e:
+            yield json.dumps({
+                "type": "end_message",
+                "session_id": session_id,
+                "status": "failed",
+                "model": "denoise",
+                "message": "error",
+            })
         clear_file.delete_all_files_in_folder(denoise_inp_dir)
         if not one_click_flag:
             aliyun_oss.upload_list_file(denoise_opt_dir)
@@ -457,8 +472,13 @@ def open_denoise_remote(denoise_inp_dir, one_click_flag=False):
             denoise_opt_dir = denoise_opt_dir[:last_index]
             clear_file.delete_all_files_in_folder(denoise_opt_dir)
     else:
-        yield "已有正在进行的语音降噪任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "denoise",
+            "message": "over",
+        })
 
 
 def close_denoise():
@@ -473,7 +493,7 @@ p_train_SoVITS = None
 
 
 def open1Ba(batch_size, total_epoch, exp_name, text_low_lr_rate, if_save_latest, if_save_every_weights,
-            save_every_epoch, gpu_numbers1Ba, pretrained_s2G, pretrained_s2D, user_id, inp_path=""):
+            save_every_epoch, gpu_numbers1Ba, pretrained_s2G, pretrained_s2D, user_id, session_id, inp_path=""):
     global p_train_SoVITS
     if (p_train_SoVITS == None):
         with open("GPT_SoVITS/configs/s2.json") as f:
@@ -515,15 +535,21 @@ def open1Ba(batch_size, total_epoch, exp_name, text_low_lr_rate, if_save_latest,
             f.write(json.dumps(data))
 
         cmd = '"%s" GPT_SoVITS/s2_train.py --config "%s"' % (python_exec, tmp_config_path)
-        yield "SoVITS训练开始：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                    "visible": True}
         print(cmd)
-        p_train_SoVITS = Popen(cmd, shell=True)
-        p_train_SoVITS.wait()
-        p_train_SoVITS = None
-        yield "SoVITS训练完成", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+        try:
+            p_train_SoVITS = Popen(cmd, shell=True)
+            p_train_SoVITS.wait()
+            p_train_SoVITS = None
+        except Exception as e:
+            yield json.dumps({
+                "type": "end_message",
+                "session_id": session_id,
+                "status": "failed",
+                "model": "sovitsTrain",
+                "message": "error",
+            })
         print("开始上传模型")
-        aliyun_oss.upload_model(save_path, user_id + "/" + "model" + "/" + "Sovits_weight/" + exp_name)
+        aliyun_oss.upload_model(save_path, "learn-wave/" + user_id + "/" + "model" + "/" + "Sovits_weight/" + exp_name)
         last_index = save_path.rfind(os.sep)
         save_path = save_path[:last_index]
         clear_file.delete_all_files_in_folder(save_path)
@@ -532,8 +558,13 @@ def open1Ba(batch_size, total_epoch, exp_name, text_low_lr_rate, if_save_latest,
             conf['log_path'] + os.sep + user_id + os.sep + exp_name + os.sep + "logs_s2"):
             clear_file.delete_all_files_in_folder(conf['log_path'] + os.sep + user_id + os.sep + exp_name)
     else:
-        yield "已有正在进行的SoVITS训练任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "sovitsTrain",
+            "message": "over",
+        })
 
 
 def close1Ba():
@@ -548,7 +579,7 @@ p_train_GPT = None
 
 
 def open1Bb(batch_size, total_epoch, exp_name, if_dpo, if_save_latest, if_save_every_weights, save_every_epoch,
-            gpu_numbers, pretrained_s1, user_id, inp_path):
+            gpu_numbers, pretrained_s1, user_id, inp_path, session_id):
     global p_train_GPT
     if (p_train_GPT == None):
         with open(
@@ -594,14 +625,21 @@ def open1Bb(batch_size, total_epoch, exp_name, if_dpo, if_save_latest, if_save_e
             f.write(yaml.dump(data, default_flow_style=False))
         # cmd = '"%s" GPT_SoVITS/s1_train.py --config_file "%s" --train_semantic_path "%s/6-name2semantic.tsv" --train_phoneme_path "%s/2-name2text.txt" --output_dir "%s/logs_s1"'%(python_exec,tmp_config_path,s1_dir,s1_dir,s1_dir)
         cmd = '"%s" GPT_SoVITS/s1_train.py --config_file "%s" ' % (python_exec, tmp_config_path)
-        yield "GPT训练开始：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
         print(cmd)
-        p_train_GPT = Popen(cmd, shell=True)
-        p_train_GPT.wait()
-        p_train_GPT = None
-        yield "GPT训练完成", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+        try:
+            p_train_GPT = Popen(cmd, shell=True)
+            p_train_GPT.wait()
+            p_train_GPT = None
+        except Exception as e:
+            yield json.dumps({
+                "type": "end_message",
+                "session_id": session_id,
+                "status": "failed",
+                "model": "gptTrain",
+                "message": "error",
+            })
         print("开始上传模型。。。。。。。。。。")
-        aliyun_oss.upload_model(save_path, user_id + "/" + "model" + "/" + "gpt_weight/" + exp_name)
+        aliyun_oss.upload_model(save_path, "learn-wave/" + user_id + "/" + "model" + "/" + "gpt_weight/" + exp_name)
         last_index = save_path.rfind(os.sep)
         save_path = save_path[:last_index]
         clear_file.delete_all_files_in_folder(save_path)
@@ -611,8 +649,13 @@ def open1Bb(batch_size, total_epoch, exp_name, if_dpo, if_save_latest, if_save_e
             clear_file.delete_all_files_in_folder(conf['log_path'] + os.sep + user_id + os.sep + exp_name)
 
     else:
-        yield "已有正在进行的GPT训练任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "gptTrain",
+            "message": "over",
+        })
 
 
 def close1Bb():
@@ -626,50 +669,51 @@ def close1Bb():
 ps_slice = []
 
 
-def open_slice(inp, opt_root, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha, n_parts):
-    global ps_slice
-    inp = my_utils.clean_path(inp)
-    opt_root = my_utils.clean_path(opt_root)
-    check_for_existance([inp])
-    if (os.path.exists(inp) == False):
-        yield "输入路径不存在", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
-        return
-    if os.path.isfile(inp):
-        n_parts = 1
-    elif os.path.isdir(inp):
-        pass
-    else:
-        yield "输入路径存在但既不是文件也不是文件夹", {"__type__": "update", "visible": True}, {"__type__": "update",
-                                                                                                "visible": False}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
-        return
-    if (ps_slice == []):
-        for i_part in range(n_parts):
-            cmd = '"%s" tools/slice_audio.py "%s" "%s" %s %s %s %s %s %s %s %s %s''' % (
-                python_exec, inp, opt_root, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha,
-                i_part, n_parts)
-            print(cmd)
-            p = Popen(cmd, shell=True)
-            ps_slice.append(p)
-        logger.debug("切割执行开始")
-        yield "切割执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
-        for p in ps_slice:
-            p.wait()
-        ps_slice = []
-        logger.debug("切割执行结束")
-        yield "切割结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
-            "__type__": "update", "value": opt_root}, {"__type__": "update", "value": opt_root}, {"__type__": "update",
-                                                                                                  "value": opt_root}
-    else:
-        logger.debug("已有正在进行的切割任务，需先终止才能开启下一次任务")
-        yield "已有正在进行的切割任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
-            "__type__": "update"}
+# def open_slice(inp, opt_root, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha, n_parts):
+#     global ps_slice
+#     inp = my_utils.clean_path(inp)
+#     opt_root = my_utils.clean_path(opt_root)
+#     check_for_existance([inp])
+#     if (os.path.exists(inp) == False):
+#         yield "输入路径不存在", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
+#             "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
+#         return
+#     if os.path.isfile(inp):
+#         n_parts = 1
+#     elif os.path.isdir(inp):
+#         pass
+#     else:
+#         yield "输入路径存在但既不是文件也不是文件夹", {"__type__": "update", "visible": True}, {"__type__": "update",
+#                                                                                                 "visible": False}, {
+#             "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
+#         return
+#     if (ps_slice == []):
+#         for i_part in range(n_parts):
+#             cmd = '"%s" tools/slice_audio.py "%s" "%s" %s %s %s %s %s %s %s %s %s''' % (
+#                 python_exec, inp, opt_root, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha,
+#                 i_part, n_parts)
+#             print(cmd)
+#             p = Popen(cmd, shell=True)
+#             ps_slice.append(p)
+#         logger.debug("切割执行开始")
+#         yield "切割执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}, {
+#             "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
+#         for p in ps_slice:
+#             p.wait()
+#         ps_slice = []
+#         logger.debug("切割执行结束")
+#         yield "切割结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "value": opt_root}, {"__type__": "update", "value": opt_root}, {"__type__": "update",
+#                                                                                                   "value": opt_root}
+#     else:
+#         logger.debug("已有正在进行的切割任务，需先终止才能开启下一次任务")
+#         yield "已有正在进行的切割任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
+#             "__type__": "update"}
 
 
 def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, max_sil_kept, _max, alpha, n_parts,
+                      session_id,
                       one_click_flag=False):
     with open('conf.yaml', 'r') as file:
         conf = yaml.safe_load(file)
@@ -690,17 +734,26 @@ def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, m
     opt_root = my_utils.clean_path(opt_root)
     check_for_existance([inp])
     if (os.path.exists(inp) == False):
-        yield "输入路径不存在", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "slice",
+            "message": "path_not_exist",
+        })
         return
     if os.path.isfile(inp):
         n_parts = 1
     elif os.path.isdir(inp):
         pass
     else:
-        yield "输入路径存在但既不是文件也不是文件夹", {"__type__": "update", "visible": True}, {"__type__": "update",
-                                                                                                "visible": False}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "slice",
+            "message": "path_error",
+        })
         return
     if (ps_slice == []):
         for i_part in range(n_parts):
@@ -711,8 +764,6 @@ def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, m
             p = Popen(cmd, shell=True)
             ps_slice.append(p)
         logger.debug("切割执行开始")
-        yield "切割执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
         for p in ps_slice:
             p.wait()
         ps_slice = []
@@ -724,15 +775,15 @@ def open_slice_remote(inp: str, threshold, min_length, min_interval, hop_size, m
                 last_index = opt_root.rfind(os.sep)
                 opt_root = opt_root[:last_index]
                 clear_file.delete_all_files_in_folder(opt_root)
-        yield "切割结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}, {
-            "__type__": "update", "value": opt_root}, {"__type__": "update", "value": opt_root}, {"__type__": "update",
-                                                                                                  "value": opt_root}
-
     else:
         logger.debug("已有正在进行的切割任务，需先终止才能开启下一次任务")
-        yield "已有正在进行的切割任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
-            "__type__": "update"}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "slice",
+            "message": "over",
+        })
 
 
 def close_slice():
@@ -747,207 +798,350 @@ def close_slice():
     return "已终止所有切割进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
 
 
-ps1a = []
+# ps1a = []
 
 
-def open1a(inp_text, inp_wav_dir, exp_name, gpu_numbers, bert_pretrained_dir):
-    global ps1a
-    inp_text = my_utils.clean_path(inp_text)
-    inp_wav_dir = my_utils.clean_path(inp_wav_dir)
-    if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
-        check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
-    if (ps1a == []):
-        opt_dir = "%s/%s" % (exp_root, exp_name)
-        config = {
-            "inp_text": inp_text,
-            "inp_wav_dir": inp_wav_dir,
-            "exp_name": exp_name,
-            "opt_dir": opt_dir,
-            "bert_pretrained_dir": bert_pretrained_dir,
-        }
-        gpu_names = gpu_numbers.split("-")
-        all_parts = len(gpu_names)
-        for i_part in range(all_parts):
-            config.update(
-                {
-                    "i_part": str(i_part),
-                    "all_parts": str(all_parts),
-                    "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                    "is_half": str(is_half)
-                }
-            )
-            os.environ.update(config)
-            cmd = '"%s" GPT_SoVITS/prepare_datasets/1-get-text.py' % python_exec
-            print(cmd)
-            p = Popen(cmd, shell=True)
-            ps1a.append(p)
-        yield "文本进程执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-        for p in ps1a:
-            p.wait()
-        opt = []
-        for i_part in range(all_parts):
-            txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
-            with open(txt_path, "r", encoding="utf8") as f:
-                opt += f.read().strip("\n").split("\n")
-            os.remove(txt_path)
-        path_text = "%s/2-name2text.txt" % opt_dir
-        with open(path_text, "w", encoding="utf8") as f:
-            f.write("\n".join(opt) + "\n")
-        ps1a = []
-        if len("".join(opt)) > 0:
-            yield "文本进程成功", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-        else:
-            yield "文本进程失败", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-    else:
-        yield "已有正在进行的文本任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}
+# def open1a(inp_text, inp_wav_dir, exp_name, gpu_numbers, bert_pretrained_dir):
+#     global ps1a
+#     inp_text = my_utils.clean_path(inp_text)
+#     inp_wav_dir = my_utils.clean_path(inp_wav_dir)
+#     if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
+#         check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
+#     if (ps1a == []):
+#         opt_dir = "%s/%s" % (exp_root, exp_name)
+#         config = {
+#             "inp_text": inp_text,
+#             "inp_wav_dir": inp_wav_dir,
+#             "exp_name": exp_name,
+#             "opt_dir": opt_dir,
+#             "bert_pretrained_dir": bert_pretrained_dir,
+#         }
+#         gpu_names = gpu_numbers.split("-")
+#         all_parts = len(gpu_names)
+#         for i_part in range(all_parts):
+#             config.update(
+#                 {
+#                     "i_part": str(i_part),
+#                     "all_parts": str(all_parts),
+#                     "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+#                     "is_half": str(is_half)
+#                 }
+#             )
+#             os.environ.update(config)
+#             cmd = '"%s" GPT_SoVITS/prepare_datasets/1-get-text.py' % python_exec
+#             print(cmd)
+#             p = Popen(cmd, shell=True)
+#             ps1a.append(p)
+#         yield "文本进程执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+#         for p in ps1a:
+#             p.wait()
+#         opt = []
+#         for i_part in range(all_parts):
+#             txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
+#             with open(txt_path, "r", encoding="utf8") as f:
+#                 opt += f.read().strip("\n").split("\n")
+#             os.remove(txt_path)
+#         path_text = "%s/2-name2text.txt" % opt_dir
+#         with open(path_text, "w", encoding="utf8") as f:
+#             f.write("\n".join(opt) + "\n")
+#         ps1a = []
+#         if len("".join(opt)) > 0:
+#             yield "文本进程成功", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#         else:
+#             yield "文本进程失败", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#     else:
+#         yield "已有正在进行的文本任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "visible": True}
+#
+#
+# def close1a():
+#     global ps1a
+#     if (ps1a != []):
+#         for p1a in ps1a:
+#             try:
+#                 kill_process(p1a.pid)
+#             except:
+#                 traceback.print_exc()
+#         ps1a = []
+#     return "已终止所有1a进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#
+#
+# ps1b = []
 
 
-def close1a():
-    global ps1a
-    if (ps1a != []):
-        for p1a in ps1a:
-            try:
-                kill_process(p1a.pid)
-            except:
-                traceback.print_exc()
-        ps1a = []
-    return "已终止所有1a进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-
-
-ps1b = []
-
-
-def open1b(inp_text, inp_wav_dir, exp_name, gpu_numbers, ssl_pretrained_dir):
-    global ps1b
-    inp_text = my_utils.clean_path(inp_text)
-    inp_wav_dir = my_utils.clean_path(inp_wav_dir)
-    if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
-        check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
-    if (ps1b == []):
-        config = {
-            "inp_text": inp_text,
-            "inp_wav_dir": inp_wav_dir,
-            "exp_name": exp_name,
-            "opt_dir": "%s/%s" % (exp_root, exp_name),
-            "cnhubert_base_dir": ssl_pretrained_dir,
-            "is_half": str(is_half)
-        }
-        gpu_names = gpu_numbers.split("-")
-        all_parts = len(gpu_names)
-        for i_part in range(all_parts):
-            config.update(
-                {
-                    "i_part": str(i_part),
-                    "all_parts": str(all_parts),
-                    "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                }
-            )
-            os.environ.update(config)
-            cmd = '"%s" GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py' % python_exec
-            print(cmd)
-            p = Popen(cmd, shell=True)
-            ps1b.append(p)
-        yield "SSL提取进程执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-        for p in ps1b:
-            p.wait()
-        ps1b = []
-        yield "SSL提取进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-    else:
-        yield "已有正在进行的SSL提取任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}
-
-
-def close1b():
-    global ps1b
-    if (ps1b != []):
-        for p1b in ps1b:
-            try:
-                kill_process(p1b.pid)
-            except:
-                traceback.print_exc()
-        ps1b = []
-    return "已终止所有1b进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-
-
-ps1c = []
-
-
-def open1c(inp_text, exp_name, gpu_numbers, pretrained_s2G_path):
-    global ps1c
-    inp_text = my_utils.clean_path(inp_text)
-    if check_for_existance([inp_text, ''], is_dataset_processing=True):
-        check_details([inp_text, ''], is_dataset_processing=True)
-    if (ps1c == []):
-        opt_dir = "%s/%s" % (exp_root, exp_name)
-        config = {
-            "inp_text": inp_text,
-            "exp_name": exp_name,
-            "opt_dir": opt_dir,
-            "pretrained_s2G": pretrained_s2G_path,
-            "s2config_path": "GPT_SoVITS/configs/s2.json",
-            "is_half": str(is_half)
-        }
-        gpu_names = gpu_numbers.split("-")
-        all_parts = len(gpu_names)
-        for i_part in range(all_parts):
-            config.update(
-                {
-                    "i_part": str(i_part),
-                    "all_parts": str(all_parts),
-                    "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                }
-            )
-            os.environ.update(config)
-            cmd = '"%s" GPT_SoVITS/prepare_datasets/3-get-semantic.py' % python_exec
-            print(cmd)
-            p = Popen(cmd, shell=True)
-            ps1c.append(p)
-        yield "语义token提取进程执行中", {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                    "visible": True}
-        for p in ps1c:
-            p.wait()
-        opt = ["item_name\tsemantic_audio"]
-        path_semantic = "%s/6-name2semantic.tsv" % opt_dir
-        for i_part in range(all_parts):
-            semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
-            with open(semantic_path, "r", encoding="utf8") as f:
-                opt += f.read().strip("\n").split("\n")
-            os.remove(semantic_path)
-        with open(path_semantic, "w", encoding="utf8") as f:
-            f.write("\n".join(opt) + "\n")
-        ps1c = []
-        yield "语义token提取进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-    else:
-        yield "已有正在进行的语义token提取任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}
-
-
-def close1c():
-    global ps1c
-    if (ps1c != []):
-        for p1c in ps1c:
-            try:
-                kill_process(p1c.pid)
-            except:
-                traceback.print_exc()
-        ps1c = []
-    return "已终止所有语义token进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+# def open1b(inp_text, inp_wav_dir, exp_name, gpu_numbers, ssl_pretrained_dir):
+#     global ps1b
+#     inp_text = my_utils.clean_path(inp_text)
+#     inp_wav_dir = my_utils.clean_path(inp_wav_dir)
+#     if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
+#         check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
+#     if (ps1b == []):
+#         config = {
+#             "inp_text": inp_text,
+#             "inp_wav_dir": inp_wav_dir,
+#             "exp_name": exp_name,
+#             "opt_dir": "%s/%s" % (exp_root, exp_name),
+#             "cnhubert_base_dir": ssl_pretrained_dir,
+#             "is_half": str(is_half)
+#         }
+#         gpu_names = gpu_numbers.split("-")
+#         all_parts = len(gpu_names)
+#         for i_part in range(all_parts):
+#             config.update(
+#                 {
+#                     "i_part": str(i_part),
+#                     "all_parts": str(all_parts),
+#                     "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+#                 }
+#             )
+#             os.environ.update(config)
+#             cmd = '"%s" GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py' % python_exec
+#             print(cmd)
+#             p = Popen(cmd, shell=True)
+#             ps1b.append(p)
+#         yield "SSL提取进程执行中", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+#         for p in ps1b:
+#             p.wait()
+#         ps1b = []
+#         yield "SSL提取进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#     else:
+#         yield "已有正在进行的SSL提取任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "visible": True}
+#
+#
+# def close1b():
+#     global ps1b
+#     if (ps1b != []):
+#         for p1b in ps1b:
+#             try:
+#                 kill_process(p1b.pid)
+#             except:
+#                 traceback.print_exc()
+#         ps1b = []
+#     return "已终止所有1b进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#
+#
+# ps1c = []
+#
+#
+# def open1c(inp_text, exp_name, gpu_numbers, pretrained_s2G_path):
+#     global ps1c
+#     inp_text = my_utils.clean_path(inp_text)
+#     if check_for_existance([inp_text, ''], is_dataset_processing=True):
+#         check_details([inp_text, ''], is_dataset_processing=True)
+#     if (ps1c == []):
+#         opt_dir = "%s/%s" % (exp_root, exp_name)
+#         config = {
+#             "inp_text": inp_text,
+#             "exp_name": exp_name,
+#             "opt_dir": opt_dir,
+#             "pretrained_s2G": pretrained_s2G_path,
+#             "s2config_path": "GPT_SoVITS/configs/s2.json",
+#             "is_half": str(is_half)
+#         }
+#         gpu_names = gpu_numbers.split("-")
+#         all_parts = len(gpu_names)
+#         for i_part in range(all_parts):
+#             config.update(
+#                 {
+#                     "i_part": str(i_part),
+#                     "all_parts": str(all_parts),
+#                     "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+#                 }
+#             )
+#             os.environ.update(config)
+#             cmd = '"%s" GPT_SoVITS/prepare_datasets/3-get-semantic.py' % python_exec
+#             print(cmd)
+#             p = Popen(cmd, shell=True)
+#             ps1c.append(p)
+#         yield "语义token提取进程执行中", {"__type__": "update", "visible": False}, {"__type__": "update",
+#                                                                                     "visible": True}
+#         for p in ps1c:
+#             p.wait()
+#         opt = ["item_name\tsemantic_audio"]
+#         path_semantic = "%s/6-name2semantic.tsv" % opt_dir
+#         for i_part in range(all_parts):
+#             semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
+#             with open(semantic_path, "r", encoding="utf8") as f:
+#                 opt += f.read().strip("\n").split("\n")
+#             os.remove(semantic_path)
+#         with open(path_semantic, "w", encoding="utf8") as f:
+#             f.write("\n".join(opt) + "\n")
+#         ps1c = []
+#         yield "语义token提取进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#     else:
+#         yield "已有正在进行的语义token提取任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "visible": True}
+#
+#
+# def close1c():
+#     global ps1c
+#     if (ps1c != []):
+#         for p1c in ps1c:
+#             try:
+#                 kill_process(p1c.pid)
+#             except:
+#                 traceback.print_exc()
+#         ps1c = []
+#     return "已终止所有语义token进程", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
 
 
 #####inp_text,inp_wav_dir,exp_name,gpu_numbers1a,gpu_numbers1Ba,gpu_numbers1c,bert_pretrained_dir,cnhubert_base_dir,pretrained_s2G
 ps1abc = []
 
 
-def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu_numbers1c, bert_pretrained_dir,
-             ssl_pretrained_dir, pretrained_s2G_path):
+# def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu_numbers1c, bert_pretrained_dir,
+#              ssl_pretrained_dir, pretrained_s2G_path):
+#     global ps1abc
+#     inp_text = my_utils.clean_path(inp_text)
+#     inp_wav_dir = my_utils.clean_path(inp_wav_dir)
+#     if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
+#         check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
+#     if (ps1abc == []):
+#         opt_dir = "%s/%s" % (exp_root, exp_name)
+#         try:
+#             #############################1a
+#             path_text = "%s/2-name2text.txt" % opt_dir
+#             if (os.path.exists(path_text) == False or (os.path.exists(path_text) == True and len(
+#                     open(path_text, "r", encoding="utf8").read().strip("\n").split("\n")) < 2)):
+#                 config = {
+#                     "inp_text": inp_text,
+#                     "inp_wav_dir": inp_wav_dir,
+#                     "exp_name": exp_name,
+#                     "opt_dir": opt_dir,
+#                     "bert_pretrained_dir": bert_pretrained_dir,
+#                     "is_half": str(is_half)
+#                 }
+#                 gpu_names = gpu_numbers1a.split("-")
+#                 all_parts = len(gpu_names)
+#                 for i_part in range(all_parts):
+#                     config.update(
+#                         {
+#                             "i_part": str(i_part),
+#                             "all_parts": str(all_parts),
+#                             "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+#                         }
+#                     )
+#                     os.environ.update(config)
+#                     cmd = '"%s" GPT_SoVITS/prepare_datasets/1-get-text.py' % python_exec
+#                     print(cmd)
+#                     p = Popen(cmd, shell=True)
+#                     ps1abc.append(p)
+#                 yield "进度：1a-ing", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+#                 for p in ps1abc: p.wait()
+#
+#                 opt = []
+#                 for i_part in range(all_parts):  # txt_path="%s/2-name2text-%s.txt"%(opt_dir,i_part)
+#                     txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
+#                     with open(txt_path, "r", encoding="utf8") as f:
+#                         opt += f.read().strip("\n").split("\n")
+#                     os.remove(txt_path)
+#                 with open(path_text, "w", encoding="utf8") as f:
+#                     f.write("\n".join(opt) + "\n")
+#                 assert len("".join(opt)) > 0, "1Aa-文本获取进程失败"
+#             yield "进度：1a-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+#             ps1abc = []
+#             #############################1b
+#             config = {
+#                 "inp_text": inp_text,
+#                 "inp_wav_dir": inp_wav_dir,
+#                 "exp_name": exp_name,
+#                 "opt_dir": opt_dir,
+#                 "cnhubert_base_dir": ssl_pretrained_dir,
+#             }
+#             gpu_names = gpu_numbers1Ba.split("-")
+#             all_parts = len(gpu_names)
+#             for i_part in range(all_parts):
+#                 config.update(
+#                     {
+#                         "i_part": str(i_part),
+#                         "all_parts": str(all_parts),
+#                         "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+#                     }
+#                 )
+#                 os.environ.update(config)
+#                 cmd = '"%s" GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py' % python_exec
+#                 print(cmd)
+#                 p = Popen(cmd, shell=True)
+#                 ps1abc.append(p)
+#             yield "进度：1a-done, 1b-ing", {"__type__": "update", "visible": False}, {"__type__": "update",
+#                                                                                      "visible": True}
+#             for p in ps1abc: p.wait()
+#             yield "进度：1a1b-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+#             ps1abc = []
+#             #############################1c
+#             path_semantic = "%s/6-name2semantic.tsv" % opt_dir
+#             if (os.path.exists(path_semantic) == False or (
+#                     os.path.exists(path_semantic) == True and os.path.getsize(path_semantic) < 31)):
+#                 config = {
+#                     "inp_text": inp_text,
+#                     "exp_name": exp_name,
+#                     "opt_dir": opt_dir,
+#                     "pretrained_s2G": pretrained_s2G_path,
+#                     "s2config_path": "GPT_SoVITS/configs/s2.json",
+#                 }
+#                 gpu_names = gpu_numbers1c.split("-")
+#                 all_parts = len(gpu_names)
+#                 for i_part in range(all_parts):
+#                     config.update(
+#                         {
+#                             "i_part": str(i_part),
+#                             "all_parts": str(all_parts),
+#                             "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
+#                         }
+#                     )
+#                     os.environ.update(config)
+#                     cmd = '"%s" GPT_SoVITS/prepare_datasets/3-get-semantic.py' % python_exec
+#                     print(cmd)
+#                     p = Popen(cmd, shell=True)
+#                     ps1abc.append(p)
+#                 yield "进度：1a1b-done, 1cing", {"__type__": "update", "visible": False}, {"__type__": "update",
+#                                                                                           "visible": True}
+#                 for p in ps1abc: p.wait()
+#
+#                 opt = ["item_name\tsemantic_audio"]
+#                 for i_part in range(all_parts):
+#                     semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
+#                     with open(semantic_path, "r", encoding="utf8") as f:
+#                         opt += f.read().strip("\n").split("\n")
+#                     os.remove(semantic_path)
+#                 with open(path_semantic, "w", encoding="utf8") as f:
+#                     f.write("\n".join(opt) + "\n")
+#                 yield "进度：all-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
+#             ps1abc = []
+#             yield "一键三连进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#         except:
+#             traceback.print_exc()
+#             close1abc()
+#             yield "一键三连中途报错", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+#     else:
+#         yield "已有正在进行的一键三连任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "visible": True}
+
+
+def open1abc_remote(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu_numbers1c, bert_pretrained_dir,
+                    ssl_pretrained_dir, pretrained_s2G_path, user_id, session_id, one_click_flag=False):
     global ps1abc
+    with open('conf.yaml', 'r') as f:
+        conf = yaml.safe_load(f)
+    inp_text_mark = inp_text
+    inp_wav_dir_mark = inp_wav_dir
+    inp_text = conf['tmp_path'] + inp_text
+    inp_wav_dir = conf['tmp_path'] + inp_wav_dir
+    if os.path.exists(inp_text) and os.path.exists((inp_wav_dir)):
+        pass
+    else:
+        inp_text = aliyun_oss.download_list_file(inp_text_mark)
+        inp_wav_dir = aliyun_oss.download_list_file(inp_wav_dir_mark)
     inp_text = my_utils.clean_path(inp_text)
+    text_list = os.listdir(inp_text)
+    inp_text = inp_text + os.sep + text_list[0]
     inp_wav_dir = my_utils.clean_path(inp_wav_dir)
     if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
         check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
     if (ps1abc == []):
-        opt_dir = "%s/%s" % (exp_root, exp_name)
+        re_exp_root = exp_root + os.sep + user_id
+        opt_dir = "%s/%s" % (re_exp_root, exp_name)
         try:
             #############################1a
             path_text = "%s/2-name2text.txt" % opt_dir
@@ -976,7 +1170,6 @@ def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu
                     print(cmd)
                     p = Popen(cmd, shell=True)
                     ps1abc.append(p)
-                yield "进度：1a-ing", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
                 for p in ps1abc: p.wait()
 
                 opt = []
@@ -988,7 +1181,6 @@ def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu
                 with open(path_text, "w", encoding="utf8") as f:
                     f.write("\n".join(opt) + "\n")
                 assert len("".join(opt)) > 0, "1Aa-文本获取进程失败"
-            yield "进度：1a-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
             ps1abc = []
             #############################1b
             config = {
@@ -1013,10 +1205,7 @@ def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu
                 print(cmd)
                 p = Popen(cmd, shell=True)
                 ps1abc.append(p)
-            yield "进度：1a-done, 1b-ing", {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                     "visible": True}
             for p in ps1abc: p.wait()
-            yield "进度：1a1b-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
             ps1abc = []
             #############################1c
             path_semantic = "%s/6-name2semantic.tsv" % opt_dir
@@ -1044,8 +1233,6 @@ def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu
                     print(cmd)
                     p = Popen(cmd, shell=True)
                     ps1abc.append(p)
-                yield "进度：1a1b-done, 1cing", {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                          "visible": True}
                 for p in ps1abc: p.wait()
 
                 opt = ["item_name\tsemantic_audio"]
@@ -1056,175 +1243,38 @@ def open1abc(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu
                     os.remove(semantic_path)
                 with open(path_semantic, "w", encoding="utf8") as f:
                     f.write("\n".join(opt) + "\n")
-                yield "进度：all-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
             ps1abc = []
-            yield "一键三连进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+            print("结束")
+            last_index = inp_text.rfind(os.sep)
+            last_index_text = inp_text[:last_index]
+            clear_file.delete_all_files_in_folder(last_index_text)
+            last_index = inp_wav_dir.rfind(os.sep)
+            inp_wav_dir = inp_wav_dir[:last_index]
+            clear_file.delete_all_files_in_folder(inp_wav_dir)
+            if not one_click_flag:
+                aliyun_oss.upload_directory(conf['root_path'] + exp_root + os.sep + user_id, user_id)
+                clear_file.delete_all_files_in_folder(conf['root_path'] + exp_root + os.sep + user_id)
+                # last_index = before_last_index_text.rfind(os.sep)
+                # inp_text = before_last_index_text[:last_index]
+                # clear_file.delete_all_files_in_folder(inp_text)
         except:
             traceback.print_exc()
             close1abc()
-            yield "一键三连中途报错", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
+            yield json.dumps({
+                "type": "end_message",
+                "session_id": session_id,
+                "status": "failed",
+                "model": "format",
+                "message": "error",
+            })
     else:
-        yield "已有正在进行的一键三连任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}
-
-
-def open1abc_remote(inp_text, inp_wav_dir, exp_name, gpu_numbers1a, gpu_numbers1Ba, gpu_numbers1c, bert_pretrained_dir,
-                    ssl_pretrained_dir, pretrained_s2G_path, user_id, one_click_flag=False):
-    global ps1abc
-    with open('conf.yaml', 'r') as f:
-        conf = yaml.safe_load(f)
-    inp_text_mark = inp_text
-    inp_wav_dir_mark = inp_wav_dir
-    inp_text = conf['tmp_path'] + inp_text
-    inp_wav_dir = conf['tmp_path'] + inp_wav_dir
-    if os.path.exists(inp_text) and os.path.exists((inp_wav_dir)):
-        pass
-    else:
-        try:
-            inp_text = aliyun_oss.download_list_file(inp_text_mark)
-            inp_wav_dir = aliyun_oss.download_list_file(inp_wav_dir_mark)
-        except Exception as e:
-            print(e)
-    inp_text = my_utils.clean_path(inp_text)
-    text_list = os.listdir(inp_text)
-    inp_text = inp_text + os.sep + text_list[0]
-    inp_wav_dir = my_utils.clean_path(inp_wav_dir)
-    if check_for_existance([inp_text, inp_wav_dir], is_dataset_processing=True):
-        check_details([inp_text, inp_wav_dir], is_dataset_processing=True)
-    if (ps1abc == []):
-        re_exp_root = exp_root + os.sep + user_id
-        opt_dir = "%s/%s" % (re_exp_root, exp_name)
-        # try:
-        #############################1a
-        path_text = "%s/2-name2text.txt" % opt_dir
-        if (os.path.exists(path_text) == False or (os.path.exists(path_text) == True and len(
-                open(path_text, "r", encoding="utf8").read().strip("\n").split("\n")) < 2)):
-            config = {
-                "inp_text": inp_text,
-                "inp_wav_dir": inp_wav_dir,
-                "exp_name": exp_name,
-                "opt_dir": opt_dir,
-                "bert_pretrained_dir": bert_pretrained_dir,
-                "is_half": str(is_half)
-            }
-            gpu_names = gpu_numbers1a.split("-")
-            all_parts = len(gpu_names)
-            for i_part in range(all_parts):
-                config.update(
-                    {
-                        "i_part": str(i_part),
-                        "all_parts": str(all_parts),
-                        "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                    }
-                )
-                os.environ.update(config)
-                cmd = '"%s" GPT_SoVITS/prepare_datasets/1-get-text.py' % python_exec
-                print(cmd)
-                p = Popen(cmd, shell=True)
-                ps1abc.append(p)
-            yield "进度：1a-ing", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-            for p in ps1abc: p.wait()
-
-            opt = []
-            for i_part in range(all_parts):  # txt_path="%s/2-name2text-%s.txt"%(opt_dir,i_part)
-                txt_path = "%s/2-name2text-%s.txt" % (opt_dir, i_part)
-                with open(txt_path, "r", encoding="utf8") as f:
-                    opt += f.read().strip("\n").split("\n")
-                os.remove(txt_path)
-            with open(path_text, "w", encoding="utf8") as f:
-                f.write("\n".join(opt) + "\n")
-            assert len("".join(opt)) > 0, "1Aa-文本获取进程失败"
-        yield "进度：1a-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-        ps1abc = []
-        #############################1b
-        config = {
-            "inp_text": inp_text,
-            "inp_wav_dir": inp_wav_dir,
-            "exp_name": exp_name,
-            "opt_dir": opt_dir,
-            "cnhubert_base_dir": ssl_pretrained_dir,
-        }
-        gpu_names = gpu_numbers1Ba.split("-")
-        all_parts = len(gpu_names)
-        for i_part in range(all_parts):
-            config.update(
-                {
-                    "i_part": str(i_part),
-                    "all_parts": str(all_parts),
-                    "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                }
-            )
-            os.environ.update(config)
-            cmd = '"%s" GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py' % python_exec
-            print(cmd)
-            p = Popen(cmd, shell=True)
-            ps1abc.append(p)
-        yield "进度：1a-done, 1b-ing", {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                 "visible": True}
-        for p in ps1abc: p.wait()
-        yield "进度：1a1b-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-        ps1abc = []
-        #############################1c
-        path_semantic = "%s/6-name2semantic.tsv" % opt_dir
-        if (os.path.exists(path_semantic) == False or (
-                os.path.exists(path_semantic) == True and os.path.getsize(path_semantic) < 31)):
-            config = {
-                "inp_text": inp_text,
-                "exp_name": exp_name,
-                "opt_dir": opt_dir,
-                "pretrained_s2G": pretrained_s2G_path,
-                "s2config_path": "GPT_SoVITS/configs/s2.json",
-            }
-            gpu_names = gpu_numbers1c.split("-")
-            all_parts = len(gpu_names)
-            for i_part in range(all_parts):
-                config.update(
-                    {
-                        "i_part": str(i_part),
-                        "all_parts": str(all_parts),
-                        "_CUDA_VISIBLE_DEVICES": fix_gpu_number(gpu_names[i_part]),
-                    }
-                )
-                os.environ.update(config)
-                cmd = '"%s" GPT_SoVITS/prepare_datasets/3-get-semantic.py' % python_exec
-                print(cmd)
-                p = Popen(cmd, shell=True)
-                ps1abc.append(p)
-            yield "进度：1a1b-done, 1cing", {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                      "visible": True}
-            for p in ps1abc: p.wait()
-
-            opt = ["item_name\tsemantic_audio"]
-            for i_part in range(all_parts):
-                semantic_path = "%s/6-name2semantic-%s.tsv" % (opt_dir, i_part)
-                with open(semantic_path, "r", encoding="utf8") as f:
-                    opt += f.read().strip("\n").split("\n")
-                os.remove(semantic_path)
-            with open(path_semantic, "w", encoding="utf8") as f:
-                f.write("\n".join(opt) + "\n")
-            yield "进度：all-done", {"__type__": "update", "visible": False}, {"__type__": "update", "visible": True}
-        ps1abc = []
-        yield "一键三连进程结束", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-        print("结束")
-        last_index = inp_text.rfind(os.sep)
-        last_index_text = inp_text[:last_index]
-        clear_file.delete_all_files_in_folder(last_index_text)
-        last_index = inp_wav_dir.rfind(os.sep)
-        inp_wav_dir = inp_wav_dir[:last_index]
-        clear_file.delete_all_files_in_folder(inp_wav_dir)
-        if not one_click_flag:
-            aliyun_oss.upload_directory(conf['root_path'] + exp_root + os.sep + user_id, user_id)
-            clear_file.delete_all_files_in_folder(conf['root_path'] + exp_root + os.sep + user_id)
-            # last_index = before_last_index_text.rfind(os.sep)
-            # inp_text = before_last_index_text[:last_index]
-            # clear_file.delete_all_files_in_folder(inp_text)
-    # except:
-    #     traceback.print_exc()
-    #     close1abc()
-    #     yield "一键三连中途报错", {"__type__": "update", "visible": True}, {"__type__": "update", "visible": False}
-    else:
-        yield "已有正在进行的一键三连任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}
+        yield json.dumps({
+            "type": "end_message",
+            "session_id": session_id,
+            "status": "failed",
+            "model": "format",
+            "message": "over",
+        })
 
 
 def close1abc():
@@ -1286,11 +1336,13 @@ def _get_opt(inp, workspace, model):
 def one_click(requestData):
     try:
         yield json.dumps({
-            "mode": "slice",
+            "type": "step_message",
+            "model": "slice",
             "status": "start",
             "message": "slice阶段开始",
             "session_id": requestData['session_id']
         })
+        start_time = time.time()
         result_slice = open_slice_remote(
             requestData['inp'],
             requestData['threshold'],
@@ -1301,21 +1353,27 @@ def one_click(requestData):
             requestData['max'],
             requestData['alpha'],
             requestData['n_parts'],
+            requestData['session_id'],
             True
         )
         print(list(result_slice))
+        end_time = time.time()
+        time_cost = end_time - start_time
         print("slice阶段完成")
         yield json.dumps({
-            "mode": "slice",
+            "type": "step_message",
+            "model": "slice",
             "status": "completed",
             "message": "slice阶段完成",
-            "session_id": requestData['session_id']
+            "session_id": requestData['session_id'],
+            "dur": math.floor(time_cost)
         })
         time.sleep(1)
     except Exception as e:
         print(e)
         return json.dumps({
-            "mode": "slice",
+            "type": "step_message",
+            "model": "slice",
             "status": "failed",
             "message": "slice阶段失败",
             "session_id": requestData['session_id']
@@ -1325,27 +1383,35 @@ def one_click(requestData):
     print("slice输出路径:  ", slice_opt)
     try:
         yield json.dumps({
+            "type": "step_message",
             "model": "denoise",
             "status": "start",
             "message": "denoise阶段开始",
             "session_id": requestData['session_id']
         })
+        start_time = time.time()
         result_denoise = open_denoise_remote(
             slice_opt,
+            requestData['session_id'],
             True
         )
         print(list(result_denoise))
+        end_time = time.time()
+        time_cost = end_time - start_time
         print("denoise阶段完成")
         yield json.dumps({
+            "type": "step_message",
             "model": "denoise",
             "status": "completed",
             "message": "denoise阶段完成",
-            "session_id": requestData['session_id']
+            "session_id": requestData['session_id'],
+            "dur": math.floor(time_cost)
         })
         time.sleep(1)
     except Exception as e:
         print(e)
         return json.dumps({
+            "type": "step_message",
             "model": "denoise",
             "status": "failed",
             "message": "denoise阶段失败",
@@ -1356,31 +1422,39 @@ def one_click(requestData):
     print("denoise输出路径:  ", denoise_opt)
     try:
         yield json.dumps({
+            "type": "step_message",
             "model": "asr",
             "status": "start",
             "message": "asr阶段开始",
             "session_id": requestData['session_id']
         })
+        start_time = time.time()
         result_asr = open_asr_remote(
             denoise_opt,
             requestData['asr_model'],
             requestData['asr_model_size'],
             requestData['asr_lang'],
             requestData['asr_precision'],
+            requestData['session_id'],
             True
         )
         print(list(result_asr))
+        end_time = time.time()
+        time_cost = end_time - start_time
         print("asr阶段完成")
         yield json.dumps({
+            "type": "step_message",
             "model": "asr",
             "status": "completed",
             "message": "asr阶段完成",
-            "session_id": requestData['session_id']
+            "session_id": requestData['session_id'],
+            "dur": math.floor(time_cost)
         })
         time.sleep(1)
     except Exception as e:
         print(e)
         return json.dumps({
+            "type": "step_message",
             "model": "asr",
             "status": "failed",
             "message": "asr阶段失败",
@@ -1391,12 +1465,13 @@ def one_click(requestData):
     print("asr输出路径:  ", asr_opt)
     try:
         yield json.dumps({
-            "model": "1abc",
+            "type": "step_message",
+            "model": "format",
             "status": "start",
             "message": "1abc格式化阶段开始",
             "session_id": requestData['session_id']
         })
-
+        start_time = time.time()
         result_1abc = open1abc_remote(
             asr_opt,
             denoise_opt,
@@ -1408,21 +1483,27 @@ def one_click(requestData):
             requestData['ssl_pretrained_dir'],
             requestData['pretrained_s2G_path'],
             requestData['user_id'],
+            requestData['session_id'],
             True
         )
         print(list(result_1abc))
+        end_time = time.time()
+        time_cost = end_time - start_time
         print("1abc格式阶段已完成")
         yield json.dumps({
-            "model": "1abc",
+            "type": "step_message",
+            "model": "format",
             "status": "completed",
             "message": "1abc格式化阶段已完成",
-            "session_id": requestData['session_id']
+            "session_id": requestData['session_id'],
+            "dur": math.floor(time_cost)
         })
         time.sleep(1)
     except Exception as e:
         print(e)
         return json.dumps({
-            "model": "1abc",
+            "type": "step_message",
+            "model": "format",
             "status": "failed",
             "message": "1abc格式化阶段失败",
             "session_id": requestData['session_id']
@@ -1430,11 +1511,13 @@ def one_click(requestData):
 
     try:
         yield json.dumps({
-            "model": "1ba",
+            "type": "step_message",
+            "model": "sovitsTrain",
             "status": "start",
             "message": "1ba_soVITS_train阶段开始",
             "session_id": requestData['session_id']
         })
+        start_time = time.time()
         ba_result = open1Ba(
             requestData['batch_size'],
             requestData['total_epoch'],
@@ -1446,32 +1529,40 @@ def one_click(requestData):
             requestData['gpu_numbers1Ba_Ba'],
             requestData['pretrained_s2G'],
             requestData['pretrained_s2D'],
-            requestData['user_id']
+            requestData['user_id'],
+            requestData['session_id']
         )
         print(list(ba_result))
+        end_time = time.time()
+        time_cost = end_time - start_time
         print("1ba_soVITS_train阶段已完成")
         yield json.dumps({
-            "model": "1ba",
+            "type": "step_message",
+            "model": "sovitsTrain",
             "status": "completed",
             "message": "1ba_soVITS_train阶段已完成",
-            "session_id": requestData['session_id']
+            "session_id": requestData['session_id'],
+            "dur": math.floor(time_cost)
         })
         time.sleep(1)
     except Exception as e:
         print(e)
         return json.dumps({
-            "model": "1ba",
+            "type": "step_message",
+            "model": "sovitsTrain",
             "status": "failed",
             "message": "1ba_soVITS_train阶段失败",
             "session_id": requestData['session_id']
         })
     try:
         yield json.dumps({
-            "model": "1bb",
+            "type": "step_message",
+            "model": "gptTrain",
             "status": "start",
             "message": "1bb_gpt_train阶段开始",
             "session_id": requestData['session_id']
         })
+        start_time = time.time()
         result_bb = open1Bb(
             requestData['batch_size_Bb'],
             requestData['total_epoch_Bb'],
@@ -1483,27 +1574,34 @@ def one_click(requestData):
             requestData['gpu_numbers'],
             requestData['pretrained_s1'],
             requestData['user_id'],
-            requestData['inp_path']
+            requestData['inp_path'],
+            requestData['session_id']
         )
         print(list(result_bb))
+        end_time = time.time()
+        time_cost = end_time - start_time
         print("1bb_gpt_train阶段已完成")
         yield json.dumps({
-            "model": "1bb",
+            "type": "step_message",
+            "model": "gptTrain",
             "status": "completed",
             "message": "1bb_gpt_train阶段已完成",
-            "session_id": requestData['session_id']
+            "session_id": requestData['session_id'],
+            "dur": math.floor(time_cost)
         })
         time.sleep(1)
     except Exception as e:
         print(e)
         return json.dumps({
-            "model": "1bb",
+            "type": "step_message",
+            "model": "gptTrain",
             "status": "failed",
             "message": "1bb_gpt_train阶段失败",
             "session_id": requestData['session_id']
         })
     yield json.dumps({
-        "mode": "end",
+        "type": "end_message",
+        "model": "end",
         "status": "completed",
         "message": "全部任务已完成",
         "session_id": requestData['session_id']
@@ -1615,7 +1713,7 @@ async def open_slice_api(request: sliceRequestRemote):
             "slice",
             request.dict()
         )
-        return {"status": "success", "message": "开始音频切割"}
+        return {"status": "success", "message": "start"}
     except Exception as e:
         logger.error(f"进行音频切割时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1637,7 +1735,7 @@ async def open_denoise_api(reqeust: denoiseRequestRemote):
             "denoise",
             reqeust.dict()
         )
-        return {"status": "success", "message": "开始音频降噪"}
+        return {"status": "success", "message": "start"}
     except:
         logger.error(f"进行音频降噪时异常: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1667,7 +1765,7 @@ async def open_asr_api(request: asrRequestRemote):
         startEmit(
             "asr",
             request.dict())
-        return {"status": "success", "message": "开始进行ASR"}
+        return {"status": "success", "message": "start"}
     except:
         logger.error(f"进行ASR时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1693,7 +1791,7 @@ async def open_1abc_api(request: abcRequest):
         startEmit(
             "1abc",
             request.dict())
-        return {"status": "success", "message": "开始进行一键三连"}
+        return {"status": "success", "message": "start"}
     except:
         logger.error(f"进行一键三连时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1721,7 +1819,7 @@ async def sovits_train_api(request: sovitsTrainRequest):
         startEmit(
             "1Ba",
             request.dict())
-        return {"status": "success", "message": "开始进行sovits训练"}
+        return {"status": "success", "message": "start"}
     except:
         logger.error(f"进行sovits训练时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
@@ -1750,7 +1848,7 @@ async def gpt_train_api(request: gptTrainRequest):
             "1Bb",
             request.dict()
         )
-        return {"status": "success", "message": "开始进行gpt训练"}
+        return {"status": "success", "message": "start"}
     except:
         logger.error(f"进行gpt训练时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

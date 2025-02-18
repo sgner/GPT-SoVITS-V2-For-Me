@@ -26,7 +26,7 @@ auth = oss2.ProviderAuthV4(EnvironmentVariableCredentialsProvider())
 # 设置Endpoint和Region
 endpoint = "https://oss-cn-beijing.aliyuncs.com"
 region = "cn-beijing"
-bucket = oss2.Bucket(auth, endpoint, "demo-1735970696-2165", region=region)
+bucket = oss2.Bucket(auth, endpoint, "learn-wave", region=region)
 
 
 def generate_unique_bucket_name():
