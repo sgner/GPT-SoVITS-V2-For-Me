@@ -8,6 +8,8 @@ import yaml
 import logging
 import time
 import random
+from oss2 import resumable_download
+from oss2.resumable import ResumableStore
 from tools.my_utils import clean_path
 
 # 配置日志
@@ -89,7 +91,7 @@ def upload_list_file(file_path: str):
         print(e)
 
 
-def upload_directory(local_directory,user_id):
+def upload_directory(local_directory, user_id):
     """
     上传本地目录到阿里云 OSS，并修改路径格式
     local_directory: 本地文件夹路径
@@ -104,7 +106,7 @@ def upload_directory(local_directory,user_id):
             print(relative_path)
 
             # 修改路径，替换掉 E:\\gptov\\GPT-SoVITS\\GPT-SoVITS-v2\\ 部分
-            oss_object_name = os.path.join(user_id+'/workspace', 'logs', relative_path).replace(os.sep, '/')
+            oss_object_name = os.path.join(user_id + '/workspace', 'logs', relative_path).replace(os.sep, '/')
             print(oss_object_name)
             # 调用 upload_file 上传文件
             upload_file(oss_object_name, local_file_path)
@@ -132,7 +134,7 @@ def download_directory_4_1Ba(oss_base_path, local_directory):
             name = next_object_info.key[before_last_index + 1:]
             print(next_object_info.key)
             print(name)
-            download_file(next_object_info.key,local_directory+os.sep+name)
+            download_file(next_object_info.key, local_directory + os.sep + name)
 
     # for object_info in bucket.list_objects_v2(prefix=oss_base_path,delimiter='/').object_list:
     #     # 获取文件在 OSS 中的路径
@@ -146,6 +148,50 @@ def download_directory_4_1Ba(oss_base_path, local_directory):
     #     print(target_path)
     # 下载文件
     # download_file(oss_object_name, target_path)
+
+
+def download_with_resume(object_name, local_file,
+                         multiget_threshold=20 * 1024 * 1024,  # 20MB以上启用分片
+                         part_size=10 * 1024 * 1024,  # 分片大小10MB
+                         num_threads=6,  # 并发线程数
+                         store=None,):
+    try:
+        # 创建目标目录
+        target_dir = os.path.dirname(os.path.abspath(local_file))
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+            logging.info(f"Created directory: {target_dir}")
+
+        # 配置下载参数
+        params = {
+            'bucket': bucket,
+            'key': object_name,
+            'filename': local_file,
+            'multiget_threshold': multiget_threshold,
+            'part_size': part_size,
+            'num_threads': num_threads,
+            'progress_callback': progress_callback,
+            'store':  store or ResumableStore(),
+        }
+
+        # 执行断点续传下载
+        resumable_download(**params)
+        logging.info(f"File downloaded successfully: {local_file}")
+
+    except oss2.exceptions.OssError as e:
+        logging.error(f"OSS Error: {e}")
+    except Exception as e:
+        logging.error(f"Download failed: {e}")
+        # 保留已下载的分片文件以便恢复
+        if os.path.exists(local_file + '.tmp'):
+            logging.warning(f"Temporary file retained: {local_file}.tmp")
+
+
+def progress_callback(consumed_bytes, total_bytes):
+    if total_bytes:
+        rate = int(100 * (float(consumed_bytes) / float(total_bytes)))
+        logging.info(f"Download progress: {rate}% "
+                     f"({consumed_bytes}/{total_bytes} bytes)")
 
 
 def download_file(object_name, target_path):
@@ -254,7 +300,6 @@ def upload_model(local_path, target_path):
                 print(f"upload success : {model}")
 
 
-
 if __name__ == '__main__':
     # with open("E:\\test-oss\\user_id_test\\workspace\\asr_workspace\\process_id\\result\\denoise.list","r",encoding='utf-8') as f:
     #     lines = f.readlines()
@@ -262,7 +307,8 @@ if __name__ == '__main__':
     #         print(line)
     # upload_directory('E:\\gptov\\GPT-SoVITS\\GPT-SoVITS-v2\\logs\\12345')
     # 2. 上传文件
-    upload_model("E:\\gptov\\GPT-SoVITS\\GPT-SoVITS-v2\\SoVITS_weights_v2\\12345\\test02","user_id_test/model/Sovits_weight/test02")
+    upload_model("E:\\gptov\\GPT-SoVITS\\GPT-SoVITS-v2\\SoVITS_weights_v2\\12345\\test02",
+                 "user_id_test/model/Sovits_weight/test02")
     # download_directory_4_1Ba("user_id_test/workspace/logs/test02/", "E:\\gptov\\GPT-SoVITS\\GPT-SoVITS-v2\\logs\\12345\\test02")
     # list_objects_oss()
     # list_file_objects("test-string-file/file/")

@@ -466,8 +466,8 @@ def open_denoise_remote(denoise_inp_dir, session_id, one_click_flag=False):
                 "message": "error",
             })
         clear_file.delete_all_files_in_folder(denoise_inp_dir)
+        aliyun_oss.upload_list_file(denoise_opt_dir)
         if not one_click_flag:
-            aliyun_oss.upload_list_file(denoise_opt_dir)
             last_index = denoise_opt_dir.rfind(os.sep)
             denoise_opt_dir = denoise_opt_dir[:last_index]
             clear_file.delete_all_files_in_folder(denoise_opt_dir)
