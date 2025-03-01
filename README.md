@@ -10,7 +10,7 @@ gpt_sovits_api.py
 
 ## 简介
 
-本项目为 GPT-SoVITS 框架提供了一组封装 API，用于处理音频切片、降噪、语音识别（ASR）及模型训练（SoVITS 和 GPT）等任务。这些 API 通过 HTTP 请求接收任务参数，并利用 RabbitMQ（通过 Pika 库）进行异步任务处理。任务完成后，通过 RabbitMQ 发送完成消息，实现高效、解耦且可扩展的任务管理。
+本项目为 GPT-SoVITS 提供了一组封装 API，用于处理人声分离、音频切片、降噪、语音识别（ASR）及模型训练（SoVITS 和 GPT）等任务。这些 API 通过 HTTP 请求接收任务参数，并利用 RabbitMQ（通过 Pika 库）进行异步任务处理。任务完成后，通过 RabbitMQ 发送完成消息，实现高效、解耦且可扩展的任务管理。
 
 API 基于 FastAPI 构建，使用 Pydantic 模型进行请求验证，为音频处理和模型训练流程提供健壮的开发接口。
 
