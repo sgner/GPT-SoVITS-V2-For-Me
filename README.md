@@ -1,4 +1,4 @@
-<div align="center">
+<div>
 
 在官方：https://github.com/RVC-Boss/GPT-SoVITS 基础上修改,所有逻辑来自官方PR,如有侵权请联系删除
 
@@ -7,10 +7,270 @@
 ```
 gpt_sovits_api.py
 ```
+<div>
+   
+# GPT-SoVITS API 文档
 
+## 简介
 
+本项目为 GPT-SoVITS 框架提供了一组封装 API，用于处理音频切片、降噪、语音识别（ASR）及模型训练（SoVITS 和 GPT）等任务。这些 API 通过 HTTP 请求接收任务参数，并利用 RabbitMQ（通过 Pika 库）进行异步任务处理。任务完成后，通过 RabbitMQ 发送完成消息，实现高效、解耦且可扩展的任务管理。
 
+API 基于 FastAPI 构建，使用 Pydantic 模型进行请求验证，为音频处理和模型训练流程提供健壮的开发接口。
 
+---
+
+## API 接口文档
+
+以下为各 API 端点的详细说明，包括功能描述、请求模型及参数。
+
+### 1. `/gpt_sovits/one_click`
+
+- **描述**: 一键启动包含多步骤的完整训练流程（如切片、降噪、ASR 和训练）。
+- **HTTP 方法**: POST
+- **请求模型**: `all_options`
+- **参数**:
+  - `inp`: `str`, **必填** - 输入参数（如音频文件路径）。
+  - `session_id`: `str`, **必填** - 唯一会话标识符。
+  - `exp_name`: `str`, **必填** - 实验名称。
+  - `user_id`: `str`, **必填** - 用户标识符。
+  - `threshold`: `Optional[int] = -34` - 音频切片阈值（单位：分贝）。
+  - `min_length`: `Optional[int] = 4000` - 最小音频片段长度（单位：毫秒）。
+  - `min_interval`: `Optional[int] = 300` - 片段间最小间隔（单位：毫秒）。
+  - `hop_size`: `Optional[int] = 10` - 音频处理跳跃步长。
+  - `max_sil_kept`: `Optional[int] = 500` - 保留的最大静音时长（单位：毫秒）。
+  - `max`: `Optional[float] = 0.9` - 最大振幅缩放因子。
+  - `alpha`: `Optional[float] = 0.25` - 音频处理的 alpha 参数。
+  - `n_parts`: `Optional[int] = 4` - 音频分割份数。
+  - `asr_model`: `Optional[str] = "达摩 ASR (中文)"` - ASR 模型名称。
+  - `asr_model_size`: `Optional[str] = "large"` - ASR 模型尺寸。
+  - `asr_lang`: `Optional[str] = "zh"` - ASR 语言（如 "zh" 表示中文）。
+  - `asr_precision`: `Optional[str] = "float32"` - ASR 计算精度类型。
+  - `gpu_numbers1a`: `Optional[str] = "0-0"` - 步骤 1a 使用的 GPU 编号。
+  - `gpu_numbers1Ba`: `Optional[str] = "0-0"` - 步骤 1Ba 使用的 GPU 编号。
+  - `gpu_numbers1c`: `Optional[str] = "0-0"` - 步骤 1c 使用的 GPU 编号。
+  - `bert_pretrained_dir`: `Optional[str] = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"` - 预训练 BERT 模型路径。
+  - `ssl_pretrained_dir`: `Optional[str] = "GPT_SoVITS/pretrained_models/chinese-hubert-base"` - 预训练 SSL 模型路径。
+  - `pretrained_s2G_path`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"` - 预训练 SoVITS s2G 模型路径。
+  - `inp_path`: `Optional[str] = ""` - 附加输入路径（可选）。
+  - `if_save_latest`: `Optional[bool] = True` - 是否保存最新模型。
+  - `if_save_every_weights`: `Optional[bool] = True` - 是否每轮保存权重。
+  - `batch_size`: `Optional[int] = 3` - 训练批次大小。
+  - `total_epoch`: `Optional[int] = 8` - 总训练轮数。
+  - `text_low_lr_rate`: `Optional[float] = 0.4` - 文本相关训练的低学习率比例。
+  - `save_every_epoch`: `Optional[int] = 4` - 每 N 轮保存模型。
+  - `gpu_numbers1Ba_Ba`: `Optional[str] = "0"` - 另一训练步骤的 GPU 编号。
+  - `pretrained_s2G`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"` - 预训练 s2G 模型路径。
+  - `pretrained_s2D`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2D2333k.pth"` - 预训练 s2D 模型路径。
+  - `batch_size_Bb`: `Optional[int] = 3` - 另一训练步骤的批次大小。
+  - `total_epoch_Bb`: `Optional[int] = 15` - 另一训练步骤的总轮数。
+  - `if_dpo`: `Optional[bool] = True` - 是否使用数据并行优化（DPO）。
+  - `save_every_epoch_Bb`: `Optional[int] = 5` - 另一训练步骤的保存频率。
+  - `gpu_numbers`: `Optional[str] = "0"` - 通用 GPU 编号。
+  - `pretrained_s1`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"` - 预训练 s1 模型路径。
+- **响应**: 
+  - 成功: `{"status": "success", "message": "开始一键训练"}`
+  - 错误: HTTP 500 并返回错误详情。
+
+### 2. `/gpt_sovits/open_slice`
+
+- **描述**: 根据参数执行音频切片。
+- **HTTP 方法**: POST
+- **请求模型**: `sliceRequestRemote`
+- **参数**:
+  - `inp`: `str`, **必填** - 输入音频文件路径。
+  - `session_id`: `str`, **必填** - 唯一会话标识符。
+  - `threshold`: `Optional[int] = -34` - 音频切片阈值（单位：分贝）。
+  - `min_length`: `Optional[int] = 4000` - 最小片段长度（单位：毫秒）。
+  - `min_interval`: `Optional[int] = 300` - 片段间最小间隔（单位：毫秒）。
+  - `hop_size`: `Optional[int] = 10` - 处理跳跃步长。
+  - `max_sil_kept`: `Optional[int] = 500` - 保留的最大静音时长（单位：毫秒）。
+  - `max`: `Optional[float] = 0.9` - 最大振幅缩放因子。
+  - `alpha`: `Optional[float] = 0.25` - 处理 alpha 参数。
+  - `n_parts`: `Optional[int] = 4` - 音频分割份数。
+  - `tool`: `Optional[str] = ""` - 工具标识符（可选）。
+- **响应**: 
+  - 成功: `{"status": "success", "message": "start"}`
+  - 错误: HTTP 500 并返回错误详情。
+
+### 3. `/gpt_sovits/open_denoise`
+
+- **描述**: 对输入音频文件执行降噪处理。
+- **HTTP 方法**: POST
+- **请求模型**: `denoiseRequestRemote`
+- **参数**:
+  - `denoise_inp_dir`: `str`, **必填** - 输入音频文件目录。
+  - `session_id`: `str`, **必填** - 唯一会话标识符。
+  - `tool`: `Optional[str] = ""` - 工具标识符（可选）。
+- **响应**: 
+  - 成功: `{"status": "success", "message": "start"}`
+  - 错误: HTTP 500 并返回错误详情。
+
+### 4. `/gpt_sovits/open_asr`
+
+- **描述**: 对输入音频文件执行语音识别（ASR）。
+- **HTTP 方法**: POST
+- **请求模型**: `asrRequestRemote`
+- **参数**:
+  - `asr_inp_dir`: `str`, **必填** - 输入音频文件目录。
+  - `session_id`: `str`, **必填** - 唯一会话标识符。
+  - `asr_model`: `Optional[str] = "达摩 ASR (中文)"` - ASR 模型名称。
+  - `asr_model_size`: `Optional[str] = "large"` - ASR 模型尺寸。
+  - `asr_lang`: `Optional[str] = "zh"` - ASR 语言（如 "zh" 表示中文）。
+  - `asr_precision`: `Optional[str] = "float32"` - ASR 计算精度类型。
+  - `tool`: `Optional[str] = ""` - 工具标识符（可选）。
+- **响应**: 
+  - 成功: `{"status": "success", "message": "start"}`
+  - 错误: HTTP 500 并返回错误详情。
+
+### 5. `/gpt_sovits/open1abc`
+
+- **描述**: 执行"一键三连"预处理（功能描述不明确，推测为组合三个步骤）。
+- **HTTP 方法**: POST
+- **请求模型**: `abcRequest`
+- **参数**:
+  - `inp_text`: `str`, **必填** - 输入文本。
+  - `inp_wav_dir`: `str`, **必填** - 输入音频文件目录。
+  - `exp_name`: `str`, **必填** - 实验名称。
+  - `user_id`: `str`, **必填** - 用户标识符。
+  - `session_id`: `str`, **必填** - 唯一会话标识符。
+  - `gpu_numbers1a`: `Optional[str] = "0-0"` - 步骤 1a 的 GPU 编号。
+  - `gpu_numbers1Ba`: `Optional[str] = "0-0"` - 步骤 1Ba 的 GPU 编号。
+  - `gpu_numbers1c`: `Optional[str] = "0-0"` - 步骤 1c 的 GPU 编号。
+  - `bert_pretrained_dir`: `Optional[str] = "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"` - 预训练 BERT 模型路径。
+  - `ssl_pretrained_dir`: `Optional[str] = "GPT_SoVITS/pretrained_models/chinese-hubert-base"` - 预训练 SSL 模型路径。
+  - `pretrained_s2G_path`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"` - 预训练 SoVITS s2G 模型路径。
+- **响应**: 
+  - 成功: `{"status": "success", "message": "start"}`
+  - 错误: HTTP 500 并返回错误详情。
+
+### 6. `/gpt_sovits/sovits_train`
+
+- **描述**: 使用指定参数训练 SoVITS 模型。
+- **HTTP 方法**: POST
+- **请求模型**: `sovitsTrainRequest`
+- **参数**:
+  - `exp_name`: `str`, **必填** - 实验名称。
+  - `user_id`: `str`, **必填** - 用户标识符。
+  - `session_id`: `str`, **必填** - 唯一会话标识符。
+  - `inp_path`: `Optional[str] = ""` - 输入路径（可选）。
+  - `if_save_latest`: `Optional[bool] = True` - 是否保存最新模型。
+  - `if_save_every_weights`: `Optional[bool] = True` - 是否每轮保存权重。
+  - `batch_size`: `Optional[int] = 3` - 训练批次大小。
+  - `total_epoch`: `Optional[int] = 8` - 总训练轮数。
+  - `text_low_lr_rate`: `Optional[float] = 0.4` - 文本相关训练的低学习率比例。
+  - `save_every_epoch`: `Optional[int] = 4` - 每 N 轮保存模型。
+  - `gpu_numbers1Ba`: `Optional[str] = "0"` - 训练使用的 GPU 编号。
+  - `pretrained_s2G`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2G2333k.pth"` - 预训练 s2G 模型路径。
+  - `pretrained_s2D`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s2D2333k.pth"` - 预训练 s2D 模型路径。
+- **响应**: 
+  - 成功: `{"status": "success", "message": "start"}`
+  - 错误: HTTP 500 并返回错误详情。
+
+### 7. `/gpt_sovits/gpt_train`
+
+- **描述**: 使用指定参数训练 GPT 模型。
+- **HTTP 方法**: POST
+- **请求模型**: `gptTrainRequest`
+- **参数**:
+  - `exp_name`: `str`, **必填** - 实验名称。
+  - `user_id`: `str`, **必填** - 用户标识符。
+  - `session_id`: `str`, **必填** - 唯一会话标识符。
+  - `inp_path`: `Optional[str] = ""` - 输入路径（可选）。
+  - `batch_size`: `Optional[int] = 3` - 训练批次大小。
+  - `total_epoch`: `Optional[int] = 15` - 总训练轮数。
+  - `if_dpo`: `Optional[bool] = True` - 是否使用 DPO。
+  - `if_save_latest`: `Optional[bool] = True` - 是否保存最新模型。
+  - `if_save_every_weights`: `Optional[bool] = True` - 是否每轮保存权重。
+  - `save_every_epoch`: `Optional[int] = 5` - 每 N 轮保存模型。
+  - `gpu_numbers`: `Optional[str] = "0"` - 训练使用的 GPU 编号。
+  - `pretrained_s1`: `Optional[str] = "GPT_SoVITS/pretrained_models/gsv-v2final-pretrained/s1bert25hz-5kh-longer-epoch=12-step=369668.ckpt"` - 预训练 s1 模型路径。
+- **响应**: 
+  - 成功: `{"status": "success", "message": "start"}`
+  - 错误: HTTP 500 并返回错误详情。
+
+---
+
+## 架构设计
+
+### 异步任务处理
+
+- **概述**: 系统使用 RabbitMQ 作为消息队列进行异步任务处理。每个 API 端点接收 HTTP 请求后，将任务数据发布到特定的 RabbitMQ 交换机，由消费者进行处理。
+- **组件**:
+  - **FastAPI**: 处理 HTTP 请求并使用 Pydantic 模型验证输入。
+  - **RabbitMQ**: 通过交换机和队列管理任务排队和路由。
+  - **Pika**: 与 RabbitMQ 交互的 Python 库。
+  - **消费者**: 后台进程（如 `startSliceReceive`）监听队列并执行任务。
+
+### RabbitMQ 配置
+
+- **交换机类型**: `direct` - 确保消息根据路由键直接路由到绑定队列。
+- **持久化**: 交换机和队列声明为 `durable=True`，确保消息持久化。
+- **路由键**:
+  - `'start'`: 用于启动任务。
+  - `'end' + 工具名`（如 `'endslice'`）: 用于发送任务完成信号。
+- **消费**: 消费者使用 `basic_consume` 监听队列并处理消息，采用手动确认（`auto_ack=False`）保证可靠性。
+
+### 任务处理流程
+
+1. **请求接收**: API 接收 HTTP POST 请求，使用对应的 Pydantic 模型验证参数。
+2. **任务发布**: 验证后的请求数据序列化为 JSON，通过 `startEmit` 函数使用 `'start'` 路由键发布到 RabbitMQ。
+3. **任务执行**: 消费者（如 `startSliceReceive`）从队列获取消息，执行任务（如 `open_slice_remote`）并记录执行时间。
+4. **完成通知**: 任务完成或失败后，消费者通过 `endSliceEmit` 向 `'end' + 工具名` 路由键发送完成消息。
+5. **客户端反馈**: 其他服务或客户端可监听完成队列获取任务状态。
+
+### 示例消费者：音频切片
+
+- **队列**: `start_slice_queue`
+- **交换机**: `slice`
+- **流程**:
+  - 从 `'start'` 路由键接收消息。
+  - 使用参数执行 `open_slice_remote`。
+  - 向 `'endslice'` 路由键发送完成消息（状态为 `completed` 或 `failed`）。
+
+---
+
+## 优势
+
+- **异步处理**: 提升系统响应能力，通过后台任务处理支持高并发。
+- **解耦**: 将 API 请求处理与任务执行分离，提高可维护性和可扩展性。
+- **可扩展性**: 可部署更多消费者以应对负载增长，无需修改 API 层。
+- **可靠性**: RabbitMQ 的持久化队列和消息确认机制确保任务不丢失。
+- **灵活性**: 通过独立交换机和队列管理不同任务类型，便于模块化扩展。
+
+---
+
+## 不足
+
+- **复杂度增加**: 引入 RabbitMQ 需额外的基础设施搭建、监控和维护。
+- **延迟**: 异步处理可能导致延迟，不适用于实时性要求高的场景。
+- **资源开销**: 运行 RabbitMQ 和多个消费者会消耗额外计算资源。
+- **错误处理**: 需完善的任务失败处理机制以通知客户端，增加开发成本。
+- **依赖性强**: 系统依赖 RabbitMQ 的可用性，消息队列故障会导致任务中断。
+
+---
+
+## 示例：音频切片流程
+
+### API 请求
+
+```bash
+curl -X POST "http://localhost:8000/gpt_sovits/open_slice" \
+-H "Content-Type: application/json" \
+-d '{
+  "inp": "/path/to/audio.wav",
+  "session_id": "12345",
+  "threshold": -34,
+  "min_length": 4000,
+  "min_interval": 300,
+  "hop_size": 10,
+  "max_sil_kept": 500,
+  "max": 0.9,
+  "alpha": 0.25,
+  "n_parts": 4,
+  "tool": "slice"
+}'
+
+</div>
 
 ```
 python3 api_v2.py
