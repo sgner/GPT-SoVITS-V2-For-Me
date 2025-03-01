@@ -1,7 +1,5 @@
 在官方：https://github.com/RVC-Boss/GPT-SoVITS 基础上修改,所有逻辑来自官方PR,如有侵权请联系删除
 
-<h1>接口调用方式</h1>
-
 ```
 gpt_sovits_api.py
 ```
