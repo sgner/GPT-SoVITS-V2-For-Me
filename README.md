@@ -5,6 +5,14 @@
 <h1>接口调用方式</h1>
 
 ```
+gpt_sovits_api.py
+```
+
+
+
+
+
+```
 python3 api_v2.py
 ```
 
