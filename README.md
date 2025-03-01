@@ -1,5 +1,3 @@
-<div>
-
 在官方：https://github.com/RVC-Boss/GPT-SoVITS 基础上修改,所有逻辑来自官方PR,如有侵权请联系删除
 
 <h1>接口调用方式</h1>
@@ -268,8 +266,10 @@ curl -X POST "http://localhost:8000/gpt_sovits/open_slice" \
   "n_parts": 4,
   "tool": "slice"
 }'
+```
+<div align="center">
 
-
+   
 ```
 python3 api_v2.py
 ```
