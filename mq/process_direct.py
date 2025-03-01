@@ -32,6 +32,7 @@ def startUvr5Receive():
                 print("接收到的请求数据:", requestData)
                 print("开始执行uvr5")
                 ch.basic_ack(delivery_tag=method.delivery_tag)
+                start_time = time.time()
                 uvr_remote(
                     requestData['model_name'],
                     requestData['input_root'],
@@ -39,19 +40,28 @@ def startUvr5Receive():
                     requestData['agg'],
                     requestData['paths']
                 )
+                time_cost = time.time() - start_time
                 print("uvr5执行完成")
                 session_id = requestData['session_id']
                 endUvr5Emit(
-                    json.dumps({"session_id": session_id,
-                                "status": "success"
-                                }
-                               ))
+                    json.dumps({
+                        "type": "end_message",
+                        "model": "uvr5",
+                        "status": "completed",
+                        "message": "uvr5完成",
+                        "session_id": session_id,
+                        "dur": math.floor(time_cost)
+                    }))
 
             except Exception as e:
                 endUvr5Emit(
-                    json.dumps({"session_id": session_id,
-                                "status": "error"
-                                })
+                    json.dumps({
+                        "type": "end_message",
+                        "session_id": session_id,
+                        "status": "failed",
+                        "model": "uvr5",
+                        "message": "uvr5阶段失败",
+                    })
                 )
                 print(e)
 
@@ -87,8 +97,8 @@ def startSliceReceive():
     def callback(ch, method, properties, body):
         def process_request(body):
             session_id = ""
+            requestData = json.loads(body)
             try:
-                requestData = json.loads(body)
                 session_id = requestData['session_id']
                 print("接收到的请求数据:", requestData)
                 print("开始执行slice")
@@ -109,12 +119,14 @@ def startSliceReceive():
                 for err in result:
                     if err is not None:
                         endSliceEmit(
-                            err
+                            err,
+                            requestData["tool"]
                         )
                         return
                 end_time = time.time()
                 time_cost = end_time - start_time
                 print("slice 已完成")
+                print(requestData["tool"])
                 endSliceEmit(
                     json.dumps({
                         "type": "end_message",
@@ -123,7 +135,8 @@ def startSliceReceive():
                         "message": "slice阶段完成",
                         "session_id": session_id,
                         "dur": math.floor(time_cost)
-                    })
+                    }),
+                    requestData["tool"]
                 )
             except Exception as e:
                 endSliceEmit(
@@ -133,7 +146,8 @@ def startSliceReceive():
                         "status": "failed",
                         "model": "slice",
                         "message": "slice阶段失败",
-                    })
+                    }),
+                    requestData["tool"]
                 )
                 print(e)
 
@@ -147,14 +161,14 @@ def startSliceReceive():
     channel.start_consuming()
 
 
-def endSliceEmit(message):
+def endSliceEmit(message, tool):
     connection = mq_config.create_connection()
     channel = connection.channel()
-
+    print('end' + tool)
     channel.exchange_declare(exchange='slice', exchange_type='direct', durable=True)
     body = json.dumps(message)
-    mq_config.publish_with_retry(channel=channel, exchange='slice', routing_key='end', body=body)
-    print("结束信号(slice)已发送:", message)
+    mq_config.publish_with_retry(channel=channel, exchange='slice', routing_key='end' + tool, body=body)
+    print(f"结束信号(slice{tool})已发送:", message)
 
 
 def startDenoiseReceive():
@@ -168,8 +182,8 @@ def startDenoiseReceive():
     def callback(ch, method, properties, body):
         def process_request(body):
             session_id = ""
+            requestData = json.loads(body)
             try:
-                requestData = json.loads(body)
                 session_id = requestData['session_id']
                 print("接收到的请求数据:", requestData)
                 print("开始执行denoise")
@@ -182,7 +196,8 @@ def startDenoiseReceive():
                 for err in result:
                     if (err != None):
                         endDenoiseEmit(
-                            err
+                            err,
+                            requestData["tool"]
                         )
                         print("denoise 异常")
                         return
@@ -197,7 +212,8 @@ def startDenoiseReceive():
                         "message": "denoise阶段完成",
                         "session_id": session_id,
                         "dur": math.floor(time_cost)
-                    })
+                    }),
+                    requestData["tool"]
                 )
             except Exception as e:
                 endDenoiseEmit(
@@ -207,7 +223,8 @@ def startDenoiseReceive():
                         "status": "failed",
                         "model": "denoise",
                         "message": "denoise阶段失败",
-                    })
+                    }),
+                    requestData["tool"]
                 )
                 print(e)
 
@@ -221,14 +238,14 @@ def startDenoiseReceive():
     channel.start_consuming()
 
 
-def endDenoiseEmit(message):
+def endDenoiseEmit(message, tool):
     connection = mq_config.create_connection()
     channel = connection.channel()
 
     channel.exchange_declare(exchange='denoise', exchange_type='direct', durable=True)
     body = json.dumps(message)
-    mq_config.publish_with_retry(channel=channel, exchange='denoise', routing_key='end', body=body)
-    print("结束信号(denoise)已发送:", message)
+    mq_config.publish_with_retry(channel=channel, exchange='denoise', routing_key='end' + tool, body=body)
+    print(f"结束信号(denoise{tool})已发送:", message)
 
 
 def startAsrReceive():
@@ -242,8 +259,8 @@ def startAsrReceive():
     def callback(ch, method, properties, body):
         def process_request(body):
             session_id = ""
+            requestData = json.loads(body)
             try:
-                requestData = json.loads(body)
                 session_id = requestData['session_id']
                 print("接收到的请求数据:", requestData)
                 print("开始执行asr")
@@ -260,7 +277,8 @@ def startAsrReceive():
                 for err in result:
                     if err is not None:
                         endAsrEmit(
-                            err
+                            err,
+                            requestData["tool"]
                         )
                         return
                 end_time = time.time()
@@ -273,7 +291,9 @@ def startAsrReceive():
                     "message": "asr阶段完成",
                     "session_id": session_id,
                     "dur": math.floor(time_cost)
-                }))
+                }),
+                    requestData["tool"]
+                )
             except Exception as e:
                 endAsrEmit(
                     json.dumps({
@@ -282,7 +302,8 @@ def startAsrReceive():
                         "status": "failed",
                         "model": "asr",
                         "message": "asr阶段失败",
-                    })
+                    }),
+                    requestData["tool"]
                 )
                 print(e)
 
@@ -296,14 +317,14 @@ def startAsrReceive():
     channel.start_consuming()
 
 
-def endAsrEmit(message):
+def endAsrEmit(message, tool):
     connection = mq_config.create_connection()
     channel = connection.channel()
 
     channel.exchange_declare(exchange='asr', exchange_type='direct', durable=True)
     body = json.dumps(message)
-    mq_config.publish_with_retry(channel=channel, exchange='asr', routing_key='end', body=body)
-    print("结束信号(asr)已发送:", message)
+    mq_config.publish_with_retry(channel=channel, exchange='asr', routing_key='end' + tool, body=body)
+    print(f"结束信号(asr{tool})已发送:", message)
 
 
 def start1abcReceive():

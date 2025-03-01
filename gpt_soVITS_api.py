@@ -302,37 +302,37 @@ def kill_process(pid):
 from tools.asr.config import asr_dict
 
 
-def open_asr(asr_inp_dir, asr_opt_dir, asr_model, asr_model_size, asr_lang, asr_precision):
-    global p_asr
-    if (p_asr == None):
-        asr_inp_dir = my_utils.clean_path(asr_inp_dir)
-        asr_opt_dir = my_utils.clean_path(asr_opt_dir)
-        check_for_existance([asr_inp_dir])
-        cmd = f'"{python_exec}" tools/asr/{asr_dict[asr_model]["path"]}'
-        cmd += f' -i "{asr_inp_dir}"'
-        cmd += f' -o "{asr_opt_dir}"'
-        cmd += f' -s {asr_model_size}'
-        cmd += f' -l {asr_lang}'
-        cmd += f" -p {asr_precision}"
-        output_file_name = os.path.basename(asr_inp_dir)
-        output_folder = asr_opt_dir or "output/asr_opt"
-        output_file_path = os.path.abspath(f'{output_folder}/{output_file_name}.list')
-        yield "ASR任务开启：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
-                                                                                 "visible": True}, {
-            "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
-        print(cmd)
-        p_asr = Popen(cmd, shell=True)
-        p_asr.wait()
-        p_asr = None
-        yield f"ASR任务完成, 查看终端进行下一步", {"__type__": "update", "visible": True}, {"__type__": "update",
-                                                                                            "visible": False}, {
-            "__type__": "update", "value": output_file_path}, {"__type__": "update", "value": output_file_path}, {
-            "__type__": "update", "value": asr_inp_dir}
-    else:
-        yield "已有正在进行的ASR任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
-            "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
-            "__type__": "update"}
-        # return None
+# def open_asr(asr_inp_dir, asr_opt_dir, asr_model, asr_model_size, asr_lang, asr_precision):
+#     global p_asr
+#     if (p_asr == None):
+#         asr_inp_dir = my_utils.clean_path(asr_inp_dir)
+#         asr_opt_dir = my_utils.clean_path(asr_opt_dir)
+#         check_for_existance([asr_inp_dir])
+#         cmd = f'"{python_exec}" tools/asr/{asr_dict[asr_model]["path"]}'
+#         cmd += f' -i "{asr_inp_dir}"'
+#         cmd += f' -o "{asr_opt_dir}"'
+#         cmd += f' -s {asr_model_size}'
+#         cmd += f' -l {asr_lang}'
+#         cmd += f" -p {asr_precision}"
+#         output_file_name = os.path.basename(asr_inp_dir)
+#         output_folder = asr_opt_dir or "output/asr_opt"
+#         output_file_path = os.path.abspath(f'{output_folder}/{output_file_name}.list')
+#         yield "ASR任务开启：%s" % cmd, {"__type__": "update", "visible": False}, {"__type__": "update",
+#                                                                                  "visible": True}, {
+#             "__type__": "update"}, {"__type__": "update"}, {"__type__": "update"}
+#         print(cmd)
+#         p_asr = Popen(cmd, shell=True)
+#         p_asr.wait()
+#         p_asr = None
+#         yield f"ASR任务完成, 查看终端进行下一步", {"__type__": "update", "visible": True}, {"__type__": "update",
+#                                                                                             "visible": False}, {
+#             "__type__": "update", "value": output_file_path}, {"__type__": "update", "value": output_file_path}, {
+#             "__type__": "update", "value": asr_inp_dir}
+#     else:
+#         yield "已有正在进行的ASR任务，需先终止才能开启下一次任务", {"__type__": "update", "visible": False}, {
+#             "__type__": "update", "visible": True}, {"__type__": "update"}, {"__type__": "update"}, {
+#             "__type__": "update"}
+#         # return None
 
 
 def open_asr_remote(asr_inp_dir, asr_model, asr_model_size, asr_lang, asr_precision, session_id, one_click_flag=False):
@@ -1704,6 +1704,7 @@ class sliceRequestRemote(BaseModel):
     max: Optional[float] = 0.9
     alpha: Optional[float] = 0.25
     n_parts: Optional[int] = 4
+    tool: Optional[str] = ""
 
 
 @app.post("/gpt_sovits/open_slice")
@@ -1726,6 +1727,7 @@ async def open_slice_api(request: sliceRequestRemote):
 class denoiseRequestRemote(BaseModel):
     denoise_inp_dir: str
     session_id: str
+    tool: Optional[str] = ""
 
 
 @app.post("/gpt_sovits/open_denoise")
@@ -1757,7 +1759,7 @@ class asrRequestRemote(BaseModel):
     asr_model_size: Optional[str] = "large"
     asr_lang: Optional[str] = "zh"
     asr_precision: Optional[str] = "float32"
-
+    tool: Optional[str] = ""
 
 @app.post("/gpt_sovits/open_asr")
 async def open_asr_api(request: asrRequestRemote):

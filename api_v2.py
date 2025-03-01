@@ -104,6 +104,7 @@ import traceback
 from typing import Generator
 from typing import Optional
 import yaml
+
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 sys.path.append("%s/GPT_SoVITS" % (now_dir))
@@ -547,7 +548,7 @@ async def tts_post_endpoint(request: TTS_Request):
             "speed_factor": 1.0,
             "fragment_interval": 0.3,
             "seed": -1,
-            "media_type": "acc",
+            "media_type": "aac",
             "streaming_mode": True,
             "parallel_infer": True,
             "repetition_penalty": 1.35,
@@ -555,7 +556,10 @@ async def tts_post_endpoint(request: TTS_Request):
 
         # 检查每个字段，若为None或不传，则替换为默认值
         for key, default_value in default_values.items():
-            if key not in values or values[key] is None or values[key] == 0.0 or values[key] == 0:
+            if key in ["streaming_mode","parallel_infer","split_bucket"]:
+                if key not in values or values[key] is None:
+                    values[key] = default_value
+            elif key not in values or values[key] is None or values[key] == 0.0 or values[key] == 0:
                 values[key] = default_value
         return values
 
@@ -565,6 +569,9 @@ async def tts_post_endpoint(request: TTS_Request):
         req["media_type"] = 'aac'
     else:
         req["media_type"] = 'wav'
+    with open('conf.yaml', 'r') as f:
+        conf = yaml.safe_load(f)
+    req['ref_audio_path'] = conf['tmp_path'] + os.sep + req['ref_audio_path']
     return await tts_handle(req)
 
 
@@ -596,16 +603,17 @@ async def set_refer_aduio(refer_audio_path: str = None):
 #     return JSONResponse(status_code=200, content={"message": "success"})
 
 @APP.get("/set_gpt_weights")
-async def set_gpt_weights(weights_path: str = None, user_id :str = "" ,model_name: str = ""):
+async def set_gpt_weights(weights_path: str = None, user_id: str = "", model_name: str = ""):
     try:
         if weights_path in ["", None]:
             return JSONResponse(status_code=400, content={"message": "gpt weight path is required"})
         with open('conf.yaml', 'r') as f:
             conf = yaml.safe_load(f)
-        model_path = conf['root_path'] + os.sep + 'GPT_weights_v2' + os.sep + user_id+ os.sep + model_name + os.sep + model_name+"-e15.ckpt"
+        model_path = conf[
+                         'root_path'] + os.sep + 'GPT_weights_v2' + os.sep + user_id + os.sep + model_name + os.sep + model_name + "-e15.ckpt"
         if not os.path.exists(model_path):
-            print("开始下载：",model_name)
-            aliyun_oss.download_with_resume(weights_path,model_path)
+            print("开始下载：", model_name)
+            aliyun_oss.download_with_resume(weights_path, model_path)
             print("下载到；", model_path)
         tts_pipeline.init_t2s_weights(model_path)
     except Exception as e:
@@ -615,17 +623,18 @@ async def set_gpt_weights(weights_path: str = None, user_id :str = "" ,model_nam
 
 
 @APP.get("/set_sovits_weights")
-async def set_sovits_weights(weights_path: str = None, user_id: str = "" , model_name: str = ""):
+async def set_sovits_weights(weights_path: str = None, user_id: str = "", model_name: str = ""):
     try:
         if weights_path in ["", None]:
             return JSONResponse(status_code=400, content={"message": "sovits weight path is required"})
         with open('conf.yaml', 'r') as f:
             conf = yaml.safe_load(f)
-        model_path = conf['root_path'] + os.sep + "SoVITS_weights_v2" + os.sep + user_id + os.sep + model_name + os.sep + model_name+"_e8_s264.pth"
+        model_path = conf[
+                         'root_path'] + os.sep + "SoVITS_weights_v2" + os.sep + user_id + os.sep + model_name + os.sep + model_name + "_e8_s264.pth"
         if not os.path.exists(model_path):
-            print("开始下载：",model_name)
-            aliyun_oss.download_with_resume(weights_path,model_path)
-            print("下载到；",model_path)
+            print("开始下载：", model_name)
+            aliyun_oss.download_with_resume(weights_path, model_path)
+            print("下载到；", model_path)
         tts_pipeline.init_vits_weights(model_path)
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": f"change sovits weight failed", "Exception": str(e)})

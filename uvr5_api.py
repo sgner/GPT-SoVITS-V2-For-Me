@@ -17,6 +17,7 @@ from vr import AudioPre, AudioPreDeEcho
 from bsroformer import BsRoformer_Loader
 import sys
 import json
+from tools import my_utils
 import pika
 import mq.config as mq_config
 
@@ -138,6 +139,7 @@ def uvr_remote(model_name, inp_root, format0, agg, paths):
         download_path = aliyun_oss.download_list_file(inp_root)
         inp_root = clean_path(download_path)
         save_root_vocal = clean_path(replace_last_part_of_path(inp_root, "vocal"))
+        save_root_vocal = my_utils.replace_workspace_folder(save_root_vocal, "uvr5_workspace")
         print("save_root_vocal: ", save_root_vocal)
         save_root_ins = clean_path(replace_last_part_of_path(inp_root, "instrument"))
         print("save_root_ins: ", save_root_ins)
