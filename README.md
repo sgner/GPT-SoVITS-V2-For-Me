@@ -7,7 +7,6 @@
 ```
 gpt_sovits_api.py
 ```
-<div>
    
 # GPT-SoVITS API 文档
 
@@ -270,7 +269,6 @@ curl -X POST "http://localhost:8000/gpt_sovits/open_slice" \
   "tool": "slice"
 }'
 
-</div>
 
 ```
 python3 api_v2.py
