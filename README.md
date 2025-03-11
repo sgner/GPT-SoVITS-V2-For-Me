@@ -1,5 +1,5 @@
 在官方：https://github.com/RVC-Boss/GPT-SoVITS 基础上修改,所有逻辑来自官方PR,如有侵权请联系删除
-
+learnWave项目地址： 后端 https://gitee.com/sgner/LearnWave-EduSynth-System.git 前端 https://gitee.com/sgner/learn-wave.git
 ```
 gpt_sovits_api.py
 ```
